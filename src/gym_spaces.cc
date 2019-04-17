@@ -1,6 +1,7 @@
 // (c) 2019 Florent Teichteil
 
 #include "gym_spaces.h"
+#include <algorithm>
 
 std::unique_ptr<GymSpace> GymSpace::import_from_python(const py::object& gym_space, double space_relative_precision, unsigned int feature_atom_vector_begin) {
     std::string space = py::str(gym_space.attr("__class__").attr("__name__"));
@@ -145,15 +146,42 @@ void BoxSpace<T>::convert_element_to_feature_atoms_float(const py::object& eleme
 }
 
 
+template <typename T>
+py::object BoxSpace<T>::convert_feature_atoms_to_element_int(const std::vector<int>& feature_atoms) const {
+    const ssize_t* shape = low_.shape();
+    py::array_t<T> result = py::array_t<T>(std::vector<ssize_t>(shape, shape + low_.ndim()));
+    py::buffer_info buf = result.request();
+    for (unsigned int i = 0 ; i < buf.size ; i++) {
+        ((T*) buf.ptr)[i] = feature_atoms[feature_atom_vector_begin_ + i];
+    }
+    return result;
+}
+
+
+template <typename T>
+py::object BoxSpace<T>::convert_feature_atoms_to_element_float(const std::vector<int>& feature_atoms) const {
+    const ssize_t* shape = low_.shape();
+    py::array_t<T> result = py::array_t<T>(std::vector<ssize_t>(shape, shape + low_.ndim()));
+    py::buffer_info ebuf = result.request();
+    py::buffer_info lbuf = low_.request(); // request() does not change the array
+    py::buffer_info hbuf = high_.request(); // request() does not change the array
+    for (unsigned int i = 0 ; i < ebuf.size ; i++) {
+        ((T*) ebuf.ptr)[i] = inv_normalize(std::max((T) 0.0, std::min((T) (feature_atoms[feature_atom_vector_begin_ + i] * space_relative_precision_), (T) 1.0)),
+                                           ((T*) lbuf.ptr)[i], ((T*) hbuf.ptr)[i], space_relative_precision_);
+    }
+    return result;
+}
+
+
 DictSpace::DictSpace(const py::dict& spaces, double space_relative_precision, unsigned int feature_atom_vector_begin)
 try : GymSpace(feature_atom_vector_begin) {
     number_of_feature_atoms_ = 0;
     for (auto s : spaces) {
         auto i = spaces_.insert(std::make_pair(py::cast<py::str>(s.first),
-                                                std::move(GymSpace::import_from_python(py::cast<py::object>(s.second),
-                                                                                       space_relative_precision,
-                                                                                       feature_atom_vector_begin + number_of_feature_atoms_)))
-                                ).first;
+                                               std::move(GymSpace::import_from_python(py::cast<py::object>(s.second),
+                                                                                      space_relative_precision,
+                                                                                      feature_atom_vector_begin + number_of_feature_atoms_)))
+                               ).first;
         number_of_feature_atoms_ += i->second->get_number_of_feature_atoms();
     }
 } catch (const py::cast_error& e) {
@@ -203,6 +231,15 @@ void DictSpace::convert_element_to_feature_atoms(const py::object& element, std:
 }
 
 
+py::object DictSpace::convert_feature_atoms_to_element(const std::vector<int>& feature_atoms) const {
+    py::dict result = py::dict();
+    for (const auto& s : spaces_) {
+        result[py::str(s.first)] = s.second->convert_feature_atoms_to_element(feature_atoms);
+    }
+    return result;
+}
+
+
 DiscreteSpace::DiscreteSpace(const py::int_& n, unsigned int feature_atom_vector_begin)
 : GymSpace(feature_atom_vector_begin), n_(n) {
     number_of_feature_atoms_ = 1;
@@ -237,6 +274,11 @@ void DiscreteSpace::convert_element_to_feature_atoms(const py::object& element, 
     } catch (const py::cast_error& e) {
         py::print("ERROR: Python casting error (python object of unexpected type) when trying to convert Gym discrete space element to a feature atom vector");
     }
+}
+
+
+py::object DiscreteSpace::convert_feature_atoms_to_element(const std::vector<int>& feature_atoms) const {
+    return py::int_(feature_atoms[feature_atom_vector_begin_]);
 }
 
 
@@ -281,6 +323,16 @@ void MultiBinarySpace::convert_element_to_feature_atoms(const py::object& elemen
     } catch (const py::cast_error& e) {
         py::print("ERROR: Python casting error (python object of unexpected type) when trying to convert Gym multi-binary space element to a feature atom vector");
     }
+}
+
+
+py::object MultiBinarySpace::convert_feature_atoms_to_element(const std::vector<int>& feature_atoms) const {
+    py::array_t<std::int8_t> result = py::array_t<std::int8_t>(n_);
+    py::buffer_info buf = result.request();
+    for (unsigned int i = 0 ; i < n_ ; i++) {
+        ((std::int8_t*) buf.ptr)[i] = feature_atoms[feature_atom_vector_begin_ + i];
+    }
+    return result;
 }
 
 
@@ -330,6 +382,16 @@ void MultiDiscreteSpace::convert_element_to_feature_atoms(const py::object& elem
     } catch (const py::cast_error& e) {
         py::print("ERROR: Python casting error (python object of unexpected type) when trying to convert Gym multi-discrete space element to a feature atom vector");
     }
+}
+
+
+py::object MultiDiscreteSpace::convert_feature_atoms_to_element(const std::vector<int>& feature_atoms) const {
+    py::array_t<std::int64_t> result = py::array_t<std::int64_t>(nvec_.size());
+    py::buffer_info buf = result.request();
+    for (unsigned int i = 0 ; i < nvec_.size() ; i++) {
+        ((std::int64_t*) buf.ptr)[i] = feature_atoms[feature_atom_vector_begin_ + i];
+    }
+    return result;
 }
 
 
@@ -384,4 +446,15 @@ void TupleSpace::convert_element_to_feature_atoms(const py::object& element, std
     } catch (const py::cast_error& e) {
         py::print("ERROR: Python casting error (python object of unexpected type) when trying to convert Gym tuple space element to a feature atom vector");
     }
+}
+
+
+py::object TupleSpace::convert_feature_atoms_to_element(const std::vector<int>& feature_atoms) const {
+    py::tuple result = py::tuple(spaces_.size());
+    unsigned int i = 0;
+    for (const auto& s : spaces_) {
+        result[i] = s->convert_feature_atoms_to_element(feature_atoms);
+        i++;
+    }
+    return result;
 }

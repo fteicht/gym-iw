@@ -16,6 +16,7 @@ public :
     static std::unique_ptr<GymSpace> import_from_python(const py::object& gym_space, double space_relative_precision = 0.001, unsigned int feature_atom_vector_begin = 0);
     inline unsigned int get_number_of_feature_atoms() const {return number_of_feature_atoms_;}
     virtual void convert_element_to_feature_atoms(const py::object& element, std::vector<int>& feature_atoms) const =0;
+    virtual py::object convert_feature_atoms_to_element(const std::vector<int>& feature_atoms) const =0;
     
 protected :
     unsigned int number_of_feature_atoms_;
@@ -35,6 +36,10 @@ public :
         convert_element_to_feature_atoms_generic(element, feature_atoms);
     }
 
+    virtual py::object convert_feature_atoms_to_element(const std::vector<int>& feature_atoms) const {
+        return convert_feature_atoms_to_element_generic(feature_atoms);
+    }
+
 private :
     mutable py::array_t<T> low_; // dirty trick to make py::array_t<T>::request() work with 'const this' since it seems it does not modify the array
     mutable py::array_t<T> high_; // dirty trick to make py::array_t<T>::request() work with 'const this' since it seems it does not modify the array
@@ -44,8 +49,16 @@ private :
         return ((T) 1.0) / (((T) 1.0) + std::exp(-decay * x));
     }
 
+    inline static T inv_sigmoid(const T& x, const T& decay) {
+        return -std::log((((T) 1.0) / x) - ((T) 1.0)) / decay;
+    }
+
     inline static T normalize(const T& x, const T& min, const T& max, const T& decay) {
         return (sigmoid(x, decay) - sigmoid(min, decay)) / (sigmoid(max, decay) - sigmoid(min, decay));
+    }
+
+    inline static T inv_normalize(const T& x, const T& min, const T& max, const T& decay) {
+        return inv_sigmoid(sigmoid(min, decay) + (x * (sigmoid(max, decay) - sigmoid(min, decay))), decay);
     }
 
     template <typename TT = T>
@@ -60,6 +73,19 @@ private :
 
     void convert_element_to_feature_atoms_int(const py::object& element, std::vector<int>& feature_atoms) const;
     void convert_element_to_feature_atoms_float(const py::object& element, std::vector<int>& feature_atoms) const;
+    
+    template <typename TT = T>
+    inline typename std::enable_if<std::is_integral<TT>::value, py::object>::type convert_feature_atoms_to_element_generic(const std::vector<int>& feature_atoms) const {
+        return convert_feature_atoms_to_element_int(feature_atoms);
+    }
+    
+    template <typename TT = T>
+    inline typename std::enable_if<std::is_floating_point<TT>::value, py::object>::type convert_feature_atoms_to_element_generic(const std::vector<int>& feature_atoms) const {
+        return convert_feature_atoms_to_element_float(feature_atoms);
+    }
+
+    py::object convert_feature_atoms_to_element_int(const std::vector<int>& feature_atoms) const;
+    py::object convert_feature_atoms_to_element_float(const std::vector<int>& feature_atoms) const;
 };
 
 
@@ -70,6 +96,7 @@ public :
 
     static std::unique_ptr<GymSpace> import_from_python(const py::object& gym_space, double space_relative_precision = 0.001, unsigned int feature_atom_vector_begin = 0);
     virtual void convert_element_to_feature_atoms(const py::object& element, std::vector<int>& feature_atoms) const;
+    virtual py::object convert_feature_atoms_to_element(const std::vector<int>& feature_atoms) const;
 
 private :
     std::map<std::string, std::unique_ptr<GymSpace>> spaces_;
@@ -83,6 +110,7 @@ public :
 
     static std::unique_ptr<GymSpace> import_from_python(const py::object& gym_space, unsigned int feature_atom_vector_begin = 0);
     virtual void convert_element_to_feature_atoms(const py::object& element, std::vector<int>& feature_atoms) const;
+    virtual py::object convert_feature_atoms_to_element(const std::vector<int>& feature_atoms) const;
     
 private :
     unsigned int n_;
@@ -96,6 +124,7 @@ public :
 
     static std::unique_ptr<GymSpace> import_from_python(const py::object& gym_space, unsigned int feature_atom_vector_begin = 0);
     virtual void convert_element_to_feature_atoms(const py::object& element, std::vector<int>& feature_atoms) const;
+    virtual py::object convert_feature_atoms_to_element(const std::vector<int>& feature_atoms) const;
     
 private :
     unsigned int n_;
@@ -109,6 +138,7 @@ public :
 
     static std::unique_ptr<GymSpace> import_from_python(const py::object& gym_space, unsigned int feature_atom_vector_begin = 0);
     virtual void convert_element_to_feature_atoms(const py::object& element, std::vector<int>& feature_atoms) const;
+    virtual py::object convert_feature_atoms_to_element(const std::vector<int>& feature_atoms) const;
     
 private :
     py::array_t<std::int64_t> nvec_;
@@ -122,6 +152,7 @@ public :
 
     static std::unique_ptr<GymSpace> import_from_python(const py::object& gym_space, double space_relative_precision = 0.001, unsigned int feature_atom_vector_begin = 0);
     virtual void convert_element_to_feature_atoms(const py::object& element, std::vector<int>& feature_atoms) const;
+    virtual py::object convert_feature_atoms_to_element(const std::vector<int>& feature_atoms) const;
     
 private :
     std::list<std::unique_ptr<GymSpace>> spaces_;
