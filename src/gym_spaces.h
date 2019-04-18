@@ -10,10 +10,15 @@ namespace py = pybind11;
 
 class GymSpace {
 public :
+    typedef enum {
+        ENCODING_BYTE_VECTOR, // all numbers encoded as byte vectors without loss (large vector if there are many numbers requiring each 4 or 8 bytes)
+        ENCODING_VARIABLE_VECTOR // each feature atom vector entry is an observation or action variable (clustering using 'space_relative_precision' for floating point value => compression with loss)
+    } Encoding;
+
     GymSpace(unsigned int feature_atom_vector_begin = 0) : number_of_feature_atoms_(0), feature_atom_vector_begin_(feature_atom_vector_begin) {}
     virtual ~GymSpace() {}
 
-    static std::unique_ptr<GymSpace> import_from_python(const py::object& gym_space, double space_relative_precision = 0.001, unsigned int feature_atom_vector_begin = 0);
+    static std::unique_ptr<GymSpace> import_from_python(const py::object& gym_space, Encoding encoding, double space_relative_precision = 0.001, unsigned int feature_atom_vector_begin = 0);
     inline unsigned int get_number_of_feature_atoms() const {return number_of_feature_atoms_;}
     virtual void convert_element_to_feature_atoms(const py::object& element, std::vector<int>& feature_atoms) const =0;
     virtual py::object convert_feature_atoms_to_element(const std::vector<int>& feature_atoms) const =0;
@@ -21,13 +26,43 @@ public :
 protected :
     unsigned int number_of_feature_atoms_;
     unsigned int feature_atom_vector_begin_; // index of the first element of this Gym space in the whole feature atom vector
+    
+private :
+    template <template <Encoding E, typename ... Types> class C, typename ... Types>
+    struct import_encoded_from_python {
+        template <typename ... Args>
+        std::unique_ptr<GymSpace> operator()(Encoding encoding, Args ... args) {
+            switch (encoding) {
+                case ENCODING_BYTE_VECTOR:
+                    return C<ENCODING_BYTE_VECTOR, Types ...>::import_from_python(args ...);
+                
+                case ENCODING_VARIABLE_VECTOR:
+                    return C<ENCODING_VARIABLE_VECTOR, Types ...>::import_from_python(args ...);
+            }
+        }
+    };
 };
 
 
-template <typename T>
+template <GymSpace::Encoding E, typename T>
 class BoxSpace : public GymSpace {
 public :
-    BoxSpace(const py::array_t<T>& low, const py::array_t<T>& high, double space_relative_precision = 0.001, unsigned int feature_atom_vector_begin = 0);
+    // constructor for variable vector encoding
+    BoxSpace(const py::array_t<T>& low, const py::array_t<T>& high, double space_relative_precision = 0.001, unsigned int feature_atom_vector_begin = 0)
+    try : GymSpace(feature_atom_vector_begin), low_(low), high_(high), space_relative_precision_(space_relative_precision) {
+        if (low_.ndim() != high_.ndim()) {
+            throw std::domain_error("Gym box space's 'low' and 'high' arrays not of the same dimension");
+        }
+        for (unsigned int d = 0 ; d < low_.ndim() ; d++) {
+            if (low_.shape(d) != high_.shape(d)) {
+                throw std::domain_error("Gym box space's 'low' and 'high' arrays' dimension " + std::to_string(d) + " not of the same size");
+            }
+        }
+        initialize_number_of_atoms();
+    } catch (const std::exception& e) {
+        throw e;
+    }
+
     virtual ~BoxSpace() {}
 
     static std::unique_ptr<GymSpace> import_from_python(const py::object& gym_space, double space_relative_precision = 0.001, unsigned int feature_atom_vector_begin = 0);
@@ -61,29 +96,65 @@ private :
         return inv_sigmoid(sigmoid(min, decay) + (x * (sigmoid(max, decay) - sigmoid(min, decay))), decay);
     }
 
-    template <typename TT = T>
-    inline typename std::enable_if<std::is_integral<TT>::value, void>::type convert_element_to_feature_atoms_generic(const py::object& element, std::vector<int>& feature_atoms) const {
-        return convert_element_to_feature_atoms_int(element, feature_atoms);
+    // Initializer for byte vector encoding
+    template <Encoding EE = E>
+    inline std::enable_if_t<EE == GymSpace::ENCODING_BYTE_VECTOR, void> initialize_number_of_atoms() {
+        number_of_feature_atoms_ = low_.size() * sizeof(T);
     }
 
-    template <typename TT = T>
-    inline typename std::enable_if<std::is_floating_point<TT>::value, void>::type convert_element_to_feature_atoms_generic(const py::object& element, std::vector<int>& feature_atoms) const {
-        return convert_element_to_feature_atoms_float(element, feature_atoms);
+    // Initializer for variable vector encoding
+    template <Encoding EE = E>
+    inline std::enable_if_t<EE == GymSpace::ENCODING_VARIABLE_VECTOR, void> initialize_number_of_atoms() {
+        number_of_feature_atoms_ = low_.size();
     }
 
+    // Convertor for byte vector encoding
+    template <Encoding EE = E>
+    inline std::enable_if_t<EE == GymSpace::ENCODING_BYTE_VECTOR, void>
+    convert_element_to_feature_atoms_generic(const py::object& element, std::vector<int>& feature_atoms) const {
+        convert_element_to_feature_atoms_byte(element, feature_atoms);
+    }
+
+    // Convertor for variable vector encoding
+    template <Encoding EE = E, typename TT = T>
+    inline std::enable_if_t<(EE == GymSpace::ENCODING_VARIABLE_VECTOR) && std::is_integral<TT>::value, void>
+    convert_element_to_feature_atoms_generic(const py::object& element, std::vector<int>& feature_atoms) const {
+        convert_element_to_feature_atoms_int(element, feature_atoms);
+    }
+
+    // Convertor for variable vector encoding
+    template <Encoding EE = E, typename TT = T>
+    inline std::enable_if_t<(EE == GymSpace::ENCODING_VARIABLE_VECTOR) && std::is_floating_point<TT>::value, void>
+    convert_element_to_feature_atoms_generic(const py::object& element, std::vector<int>& feature_atoms) const {
+        convert_element_to_feature_atoms_float(element, feature_atoms);
+    }
+
+    void convert_element_to_feature_atoms_byte(const py::object& element, std::vector<int>& feature_atoms) const;
     void convert_element_to_feature_atoms_int(const py::object& element, std::vector<int>& feature_atoms) const;
     void convert_element_to_feature_atoms_float(const py::object& element, std::vector<int>& feature_atoms) const;
     
-    template <typename TT = T>
-    inline typename std::enable_if<std::is_integral<TT>::value, py::object>::type convert_feature_atoms_to_element_generic(const std::vector<int>& feature_atoms) const {
+    // Convertor for byte vector encoding
+    template <Encoding EE = E>
+    inline std::enable_if_t<EE == GymSpace::ENCODING_BYTE_VECTOR, py::object>
+    convert_feature_atoms_to_element_generic(const std::vector<int>& feature_atoms) const {
+        return convert_feature_atoms_to_element_byte(feature_atoms);
+    }
+    
+    // Convertor for variable vector encoding
+    template <Encoding EE = E, typename TT = T>
+    inline std::enable_if_t<(EE == GymSpace::ENCODING_VARIABLE_VECTOR) && std::is_integral<TT>::value, py::object>
+    convert_feature_atoms_to_element_generic(const std::vector<int>& feature_atoms) const {
         return convert_feature_atoms_to_element_int(feature_atoms);
     }
     
-    template <typename TT = T>
-    inline typename std::enable_if<std::is_floating_point<TT>::value, py::object>::type convert_feature_atoms_to_element_generic(const std::vector<int>& feature_atoms) const {
+    // Convertor for variable vector encoding
+    template <Encoding EE = E, typename TT = T>
+    inline std::enable_if_t<(EE == GymSpace::ENCODING_VARIABLE_VECTOR) && std::is_floating_point<TT>::value, py::object>
+    convert_feature_atoms_to_element_generic(const std::vector<int>& feature_atoms) const {
         return convert_feature_atoms_to_element_float(feature_atoms);
     }
 
+    py::object convert_feature_atoms_to_element_byte(const std::vector<int>& feature_atoms) const;
     py::object convert_feature_atoms_to_element_int(const std::vector<int>& feature_atoms) const;
     py::object convert_feature_atoms_to_element_float(const std::vector<int>& feature_atoms) const;
 };
@@ -91,10 +162,10 @@ private :
 
 class DictSpace : public GymSpace {
 public :
-    DictSpace(const py::dict& spaces, double space_relative_precision = 0.001, unsigned int feature_atom_vector_begin = 0);
+    DictSpace(const py::dict& spaces, Encoding encoding, double space_relative_precision = 0.001, unsigned int feature_atom_vector_begin = 0);
     virtual ~DictSpace() {}
 
-    static std::unique_ptr<GymSpace> import_from_python(const py::object& gym_space, double space_relative_precision = 0.001, unsigned int feature_atom_vector_begin = 0);
+    static std::unique_ptr<GymSpace> import_from_python(const py::object& gym_space, Encoding encoding, double space_relative_precision = 0.001, unsigned int feature_atom_vector_begin = 0);
     virtual void convert_element_to_feature_atoms(const py::object& element, std::vector<int>& feature_atoms) const;
     virtual py::object convert_feature_atoms_to_element(const std::vector<int>& feature_atoms) const;
 
@@ -103,6 +174,7 @@ private :
 };
 
 
+template <GymSpace::Encoding E>
 class DiscreteSpace : public GymSpace {
 public :
     DiscreteSpace(const py::int_& n, unsigned int feature_atom_vector_begin = 0);
@@ -113,10 +185,11 @@ public :
     virtual py::object convert_feature_atoms_to_element(const std::vector<int>& feature_atoms) const;
     
 private :
-    unsigned int n_;
+    std::int64_t n_;
 };
 
 
+template <GymSpace::Encoding E>
 class MultiBinarySpace : public GymSpace {
 public :
     MultiBinarySpace(const py::int_& n, unsigned int feature_atom_vector_begin = 0);
@@ -127,10 +200,11 @@ public :
     virtual py::object convert_feature_atoms_to_element(const std::vector<int>& feature_atoms) const;
     
 private :
-    unsigned int n_;
+    std::int8_t n_;
 };
 
 
+template <GymSpace::Encoding E>
 class MultiDiscreteSpace : public GymSpace {
 public :
     MultiDiscreteSpace(const py::array_t<unsigned int>& nvec, unsigned int feature_atom_vector_begin = 0);
@@ -147,10 +221,10 @@ private :
 
 class TupleSpace : public GymSpace {
 public :
-    TupleSpace(const py::tuple& spaces, double space_relative_precision = 0.001, unsigned int feature_atom_vector_begin = 0);
+    TupleSpace(const py::tuple& spaces, Encoding encoding, double space_relative_precision = 0.001, unsigned int feature_atom_vector_begin = 0);
     virtual ~TupleSpace() {}
 
-    static std::unique_ptr<GymSpace> import_from_python(const py::object& gym_space, double space_relative_precision = 0.001, unsigned int feature_atom_vector_begin = 0);
+    static std::unique_ptr<GymSpace> import_from_python(const py::object& gym_space, Encoding encoding, double space_relative_precision = 0.001, unsigned int feature_atom_vector_begin = 0);
     virtual void convert_element_to_feature_atoms(const py::object& element, std::vector<int>& feature_atoms) const;
     virtual py::object convert_feature_atoms_to_element(const std::vector<int>& feature_atoms) const;
     

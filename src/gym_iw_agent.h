@@ -8,13 +8,20 @@ namespace py = pybind11;
 
 class GymIwAgent {
 public :
-    GymIwAgent(py::object& gym_env, double space_relative_precision = 0.001)
+    GymIwAgent(py::object& gym_env, const std::string& encoding, double space_relative_precision = 0.001)
     : gym_env_(gym_env), space_relative_precision_(space_relative_precision) {
         if (!py::hasattr(gym_env, "observation_space") || !py::hasattr(gym_env, "action_space")) {
             py::print("ERROR: Gym environment should have 'observation_space' and 'action_space' attributes");
         } else {
-            observation_space_ = GymSpace::import_from_python(gym_env_.attr("observation_space"), space_relative_precision);
-            action_space_ = GymSpace::import_from_python(gym_env_.attr("action_space"), space_relative_precision);
+            if (encoding == "byte") {
+                observation_space_ = GymSpace::import_from_python(gym_env_.attr("observation_space"), GymSpace::ENCODING_BYTE_VECTOR, space_relative_precision);
+                action_space_ = GymSpace::import_from_python(gym_env_.attr("action_space"), GymSpace::ENCODING_BYTE_VECTOR, space_relative_precision);
+            } else if (encoding == "variable") {
+                observation_space_ = GymSpace::import_from_python(gym_env_.attr("observation_space"), GymSpace::ENCODING_VARIABLE_VECTOR, space_relative_precision);
+                action_space_ = GymSpace::import_from_python(gym_env_.attr("action_space"), GymSpace::ENCODING_VARIABLE_VECTOR, space_relative_precision);
+            } else {
+                py::print("ERROR: unsupported feature atom vector encoding '" + encoding + "'");
+            }
         }
     }
 

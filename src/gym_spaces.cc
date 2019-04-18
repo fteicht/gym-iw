@@ -3,7 +3,7 @@
 #include "gym_spaces.h"
 #include <algorithm>
 
-std::unique_ptr<GymSpace> GymSpace::import_from_python(const py::object& gym_space, double space_relative_precision, unsigned int feature_atom_vector_begin) {
+std::unique_ptr<GymSpace> GymSpace::import_from_python(const py::object& gym_space, Encoding encoding, double space_relative_precision, unsigned int feature_atom_vector_begin) {
     std::string space = py::str(gym_space.attr("__class__").attr("__name__"));
     
     if (space == "Box") {
@@ -13,49 +13,49 @@ std::unique_ptr<GymSpace> GymSpace::import_from_python(const py::object& gym_spa
         }
         std::string dtype = py::str(gym_space.attr("dtype"));
         if (dtype == "bool_")
-            return BoxSpace<bool>::import_from_python(gym_space, 0, feature_atom_vector_begin);
+            return import_encoded_from_python<BoxSpace, bool>()(encoding, gym_space, 0, feature_atom_vector_begin);
         else if (dtype == "int_")
-            return BoxSpace<long int>::import_from_python(gym_space, 0, feature_atom_vector_begin);
+            return import_encoded_from_python<BoxSpace, long int>()(encoding, gym_space, 0, feature_atom_vector_begin);
         else if (dtype == "intc")
-            return BoxSpace<int>::import_from_python(gym_space, 0, feature_atom_vector_begin);
+            return import_encoded_from_python<BoxSpace, int>()(encoding, gym_space, 0, feature_atom_vector_begin);
         else if (dtype == "intp")
-            return BoxSpace<std::size_t>::import_from_python(gym_space, 0, feature_atom_vector_begin);
+            return import_encoded_from_python<BoxSpace, std::size_t>()(encoding, gym_space, 0, feature_atom_vector_begin);
         else if (dtype == "int8")
-            return BoxSpace<std::int8_t>::import_from_python(gym_space, 0, feature_atom_vector_begin);
+            return import_encoded_from_python<BoxSpace, std::int8_t>()(encoding, gym_space, 0, feature_atom_vector_begin);
         else if (dtype == "int16")
-            return BoxSpace<std::int16_t>::import_from_python(gym_space, 0, feature_atom_vector_begin);
+            return import_encoded_from_python<BoxSpace, std::int16_t>()(encoding, gym_space, 0, feature_atom_vector_begin);
         else if (dtype == "int32")
-            return BoxSpace<std::int32_t>::import_from_python(gym_space, 0, feature_atom_vector_begin);
+            return import_encoded_from_python<BoxSpace, std::int32_t>()(encoding, gym_space, 0, feature_atom_vector_begin);
         else if (dtype == "int64")
-            return BoxSpace<std::int64_t>::import_from_python(gym_space, 0, feature_atom_vector_begin);
+            return import_encoded_from_python<BoxSpace, std::int64_t>()(encoding, gym_space, 0, feature_atom_vector_begin);
         else if (dtype == "uint8")
-            return BoxSpace<std::uint8_t>::import_from_python(gym_space, 0, feature_atom_vector_begin);
+            return import_encoded_from_python<BoxSpace, std::uint8_t>()(encoding, gym_space, 0, feature_atom_vector_begin);
         else if (dtype == "uint16")
-            return BoxSpace<std::uint16_t>::import_from_python(gym_space, 0, feature_atom_vector_begin);
+            return import_encoded_from_python<BoxSpace, std::uint16_t>()(encoding, gym_space, 0, feature_atom_vector_begin);
         else if (dtype == "uint32")
-            return BoxSpace<std::uint32_t>::import_from_python(gym_space, 0, feature_atom_vector_begin);
+            return import_encoded_from_python<BoxSpace, std::uint32_t>()(encoding, gym_space, 0, feature_atom_vector_begin);
         else if (dtype == "uint64")
-            return BoxSpace<std::uint64_t>::import_from_python(gym_space, 0, feature_atom_vector_begin);
+            return import_encoded_from_python<BoxSpace, std::uint64_t>()(encoding, gym_space, 0, feature_atom_vector_begin);
         else if (dtype == "float_")
-            return BoxSpace<double>::import_from_python(gym_space, space_relative_precision, feature_atom_vector_begin);
+            return import_encoded_from_python<BoxSpace, double>()(encoding, gym_space, space_relative_precision, feature_atom_vector_begin);
         else if (dtype == "float32")
-            return BoxSpace<float>::import_from_python(gym_space, space_relative_precision, feature_atom_vector_begin);
+            return import_encoded_from_python<BoxSpace, float>()(encoding, gym_space, space_relative_precision, feature_atom_vector_begin);
         else if (dtype == "float64")
-            return BoxSpace<double>::import_from_python(gym_space, space_relative_precision, feature_atom_vector_begin);
+            return import_encoded_from_python<BoxSpace, double>()(encoding, gym_space, space_relative_precision, feature_atom_vector_begin);
         else {
             py::print("ERROR: Unhandled array dtype '" + dtype + "' when importing Gym box space bounds");
             return std::unique_ptr<GymSpace>();
         }
     } else if (space == "Dict") {
-        return DictSpace::import_from_python(gym_space, space_relative_precision, feature_atom_vector_begin);
+        return DictSpace::import_from_python(gym_space, encoding, space_relative_precision, feature_atom_vector_begin);
     } else if (space == "Discrete") {
-        return DiscreteSpace::import_from_python(gym_space, feature_atom_vector_begin);
+        return import_encoded_from_python<DiscreteSpace>()(encoding, gym_space, feature_atom_vector_begin);
     } else if (space == "MultiBinary") {
-        return MultiBinarySpace::import_from_python(gym_space, feature_atom_vector_begin);
+        return import_encoded_from_python<MultiBinarySpace>()(encoding, gym_space, feature_atom_vector_begin);
     } else if (space == "MultiDiscrete") {
-        return MultiDiscreteSpace::import_from_python(gym_space, feature_atom_vector_begin);
+        return import_encoded_from_python<MultiDiscreteSpace>()(encoding, gym_space, feature_atom_vector_begin);
     } else if (space == "Tuple") {
-        return TupleSpace::import_from_python(gym_space, space_relative_precision, feature_atom_vector_begin);
+        return TupleSpace::import_from_python(gym_space, encoding, space_relative_precision, feature_atom_vector_begin);
     } else {
         py::print("ERROR: Unhandled Gym space '" + space + "'");
         return std::unique_ptr<GymSpace>();
@@ -63,25 +63,8 @@ std::unique_ptr<GymSpace> GymSpace::import_from_python(const py::object& gym_spa
 }
 
 
-template <typename T>
-BoxSpace<T>::BoxSpace(const py::array_t<T>& low, const py::array_t<T>& high, double space_relative_precision, unsigned int feature_atom_vector_begin)
-try : GymSpace(feature_atom_vector_begin), low_(low), high_(high), space_relative_precision_(space_relative_precision) {
-    if (low_.ndim() != high_.ndim()) {
-        throw std::domain_error("Gym box space's 'low' and 'high' arrays not of the same dimension");
-    }
-    for (unsigned int d = 0 ; d < low_.ndim() ; d++) {
-        if (low_.shape(d) != high_.shape(d)) {
-            throw std::domain_error("Gym box space's 'low' and 'high' arrays' dimension " + std::to_string(d) + " not of the same size");
-        }
-    }
-    number_of_feature_atoms_ = low_.size();
-} catch (const std::exception& e) {
-    throw e;
-}
-
-
-template <typename T>
-std::unique_ptr<GymSpace> BoxSpace<T>::import_from_python(const py::object& gym_space, double space_relative_precision, unsigned int feature_atom_vector_begin) {
+template <GymSpace::Encoding E, typename T>
+std::unique_ptr<GymSpace> BoxSpace<E, T>::import_from_python(const py::object& gym_space, double space_relative_precision, unsigned int feature_atom_vector_begin) {
     try {
         if (!py::hasattr(gym_space, "low") || !py::hasattr(gym_space, "high")) {
             py::print("ERROR: Gym box space missing attributes 'low' or 'high'");
@@ -91,7 +74,7 @@ std::unique_ptr<GymSpace> BoxSpace<T>::import_from_python(const py::object& gym_
             py::print("ERROR: Gym box space's attributes 'low' or 'high' not numpy arrays");
             return std::unique_ptr<GymSpace>();
         }
-        return std::make_unique<BoxSpace<T>>(py::cast<py::array_t<T>>(gym_space.attr("low")), py::cast<py::array_t<T>>(gym_space.attr("high")), space_relative_precision, feature_atom_vector_begin);
+        return std::make_unique<BoxSpace<E, T>>(py::cast<py::array_t<T>>(gym_space.attr("low")), py::cast<py::array_t<T>>(gym_space.attr("high")), space_relative_precision, feature_atom_vector_begin);
     } catch (const py::cast_error& e) {
         py::print("ERROR: Python casting error (python object of unexpected type) when importing Gym box space");
         return std::unique_ptr<GymSpace>();
@@ -102,8 +85,32 @@ std::unique_ptr<GymSpace> BoxSpace<T>::import_from_python(const py::object& gym_
 }
 
 
-template <typename T>
-void BoxSpace<T>::convert_element_to_feature_atoms_int(const py::object& element, std::vector<int>& feature_atoms) const {
+template <GymSpace::Encoding E, typename T>
+void BoxSpace<E, T>::convert_element_to_feature_atoms_byte(const py::object& element, std::vector<int>& feature_atoms) const {
+    try {
+        if (!py::isinstance<py::array_t<T>>(element)) {
+            py::print("ERROR: Gym box space element not a numpy array or missing explicit 'dtype' matching that of 'low' amd 'high' arrays");
+            return;
+        }
+        py::buffer_info buf = py::cast<py::array_t<T>>(element).request();
+        if (low_.size() != buf.size) {
+            py::print("ERROR: Gym box space element and 'low' array not of the same size");
+            return;
+        }
+        for (unsigned int i = 0 ; i < buf.size ; i++) {
+            unsigned char* byte_array = reinterpret_cast<unsigned char*>(&(((T *) buf.ptr)[i]));
+            for (unsigned int j = 0 ; j < sizeof(T) ; j++) {
+                feature_atoms[feature_atom_vector_begin_ + (i * sizeof(T)) + j] = (int) byte_array[j];
+            }
+        }
+    } catch (const py::cast_error& e) {
+        py::print("ERROR: Python casting error (python object of unexpected type) when converting Gym box space element to a feature atom vector");
+    }
+}
+
+
+template <GymSpace::Encoding E, typename T>
+void BoxSpace<E, T>::convert_element_to_feature_atoms_int(const py::object& element, std::vector<int>& feature_atoms) const {
     try {
         if (!py::isinstance<py::array_t<T>>(element)) {
             py::print("ERROR: Gym box space element not a numpy array or missing explicit 'dtype' matching that of 'low' amd 'high' arrays");
@@ -123,8 +130,8 @@ void BoxSpace<T>::convert_element_to_feature_atoms_int(const py::object& element
 }
 
 
-template <typename T>
-void BoxSpace<T>::convert_element_to_feature_atoms_float(const py::object& element, std::vector<int>& feature_atoms) const {
+template <GymSpace::Encoding E, typename T>
+void BoxSpace<E, T>::convert_element_to_feature_atoms_float(const py::object& element, std::vector<int>& feature_atoms) const {
     try {
         if (!py::isinstance<py::array_t<T>>(element)) {
             py::print("ERROR: Gym box space element not a numpy array or missing explicit 'dtype' matching that of 'low' amd 'high' arrays");
@@ -146,8 +153,25 @@ void BoxSpace<T>::convert_element_to_feature_atoms_float(const py::object& eleme
 }
 
 
-template <typename T>
-py::object BoxSpace<T>::convert_feature_atoms_to_element_int(const std::vector<int>& feature_atoms) const {
+template <GymSpace::Encoding E, typename T>
+py::object BoxSpace<E, T>::convert_feature_atoms_to_element_byte(const std::vector<int>& feature_atoms) const {
+    const ssize_t* shape = low_.shape();
+    py::array_t<T> result = py::array_t<T>(std::vector<ssize_t>(shape, shape + low_.ndim()));
+    py::buffer_info buf = result.request();
+    unsigned char* byte_array = new unsigned char[sizeof(T)];
+    for (unsigned int i = 0 ; i < buf.size ; i++) {
+        for (unsigned int j = 0 ; j < sizeof(T) ; j++) {
+            byte_array[j] = (unsigned char) feature_atoms[feature_atom_vector_begin_ + (i * sizeof(T)) + j];
+        }
+        ((T*) buf.ptr)[i] = *reinterpret_cast<T*>(byte_array);
+    }
+    delete[] byte_array;
+    return result;
+}
+
+
+template <GymSpace::Encoding E, typename T>
+py::object BoxSpace<E, T>::convert_feature_atoms_to_element_int(const std::vector<int>& feature_atoms) const {
     const ssize_t* shape = low_.shape();
     py::array_t<T> result = py::array_t<T>(std::vector<ssize_t>(shape, shape + low_.ndim()));
     py::buffer_info buf = result.request();
@@ -158,8 +182,8 @@ py::object BoxSpace<T>::convert_feature_atoms_to_element_int(const std::vector<i
 }
 
 
-template <typename T>
-py::object BoxSpace<T>::convert_feature_atoms_to_element_float(const std::vector<int>& feature_atoms) const {
+template <GymSpace::Encoding E, typename T>
+py::object BoxSpace<E, T>::convert_feature_atoms_to_element_float(const std::vector<int>& feature_atoms) const {
     const ssize_t* shape = low_.shape();
     py::array_t<T> result = py::array_t<T>(std::vector<ssize_t>(shape, shape + low_.ndim()));
     py::buffer_info ebuf = result.request();
@@ -173,12 +197,13 @@ py::object BoxSpace<T>::convert_feature_atoms_to_element_float(const std::vector
 }
 
 
-DictSpace::DictSpace(const py::dict& spaces, double space_relative_precision, unsigned int feature_atom_vector_begin)
+DictSpace::DictSpace(const py::dict& spaces, Encoding encoding, double space_relative_precision, unsigned int feature_atom_vector_begin)
 try : GymSpace(feature_atom_vector_begin) {
     number_of_feature_atoms_ = 0;
     for (auto s : spaces) {
         auto i = spaces_.insert(std::make_pair(py::cast<py::str>(s.first),
                                                std::move(GymSpace::import_from_python(py::cast<py::object>(s.second),
+                                                                                      encoding,
                                                                                       space_relative_precision,
                                                                                       feature_atom_vector_begin + number_of_feature_atoms_)))
                                ).first;
@@ -189,7 +214,7 @@ try : GymSpace(feature_atom_vector_begin) {
 }
 
 
-std::unique_ptr<GymSpace> DictSpace::import_from_python(const py::object& gym_space, double space_relative_precision, unsigned int feature_atom_vector_begin) {
+std::unique_ptr<GymSpace> DictSpace::import_from_python(const py::object& gym_space, Encoding encoding, double space_relative_precision, unsigned int feature_atom_vector_begin) {
     try {
         if (!py::hasattr(gym_space, "spaces")) {
             py::print("ERROR: Gym dict space missing attribute 'spaces'");
@@ -199,7 +224,7 @@ std::unique_ptr<GymSpace> DictSpace::import_from_python(const py::object& gym_sp
             py::print("ERROR: Gym dict space's 'spaces' not of type 'dict'");
             return std::unique_ptr<GymSpace>();
         }
-        return std::make_unique<DictSpace>(py::cast<py::dict>(gym_space.attr("spaces")), space_relative_precision, feature_atom_vector_begin);
+        return std::make_unique<DictSpace>(py::cast<py::dict>(gym_space.attr("spaces")), encoding, space_relative_precision, feature_atom_vector_begin);
     } catch (const py::cast_error& e) {
         py::print("ERROR: Python casting error (python object of unexpected type) when trying to interpret Gym dict space's subspaces as a python dict");
         return std::unique_ptr<GymSpace>();
@@ -240,13 +265,22 @@ py::object DictSpace::convert_feature_atoms_to_element(const std::vector<int>& f
 }
 
 
-DiscreteSpace::DiscreteSpace(const py::int_& n, unsigned int feature_atom_vector_begin)
+template <>
+DiscreteSpace<GymSpace::ENCODING_BYTE_VECTOR>::DiscreteSpace(const py::int_& n, unsigned int feature_atom_vector_begin)
+: GymSpace(feature_atom_vector_begin), n_(n) {
+    number_of_feature_atoms_ = sizeof(std::int64_t);
+}
+
+
+template <>
+DiscreteSpace<GymSpace::ENCODING_VARIABLE_VECTOR>::DiscreteSpace(const py::int_& n, unsigned int feature_atom_vector_begin)
 : GymSpace(feature_atom_vector_begin), n_(n) {
     number_of_feature_atoms_ = 1;
 }
 
 
-std::unique_ptr<GymSpace> DiscreteSpace::import_from_python(const py::object& gym_space, unsigned int feature_atom_vector_begin) {
+template <GymSpace::Encoding E>
+std::unique_ptr<GymSpace> DiscreteSpace<E>::import_from_python(const py::object& gym_space, unsigned int feature_atom_vector_begin) {
     try {
         if (!py::hasattr(gym_space, "n")) {
             py::print("ERROR: Gym discrete space missing attribute 'n'");
@@ -256,7 +290,7 @@ std::unique_ptr<GymSpace> DiscreteSpace::import_from_python(const py::object& gy
             py::print("ERROR: Gym discrete space's 'n' not of type 'int'");
             return std::unique_ptr<GymSpace>();
         }
-        return std::make_unique<DiscreteSpace>(py::cast<py::int_>(gym_space.attr("n")), feature_atom_vector_begin);
+        return std::make_unique<DiscreteSpace<E>>(py::cast<py::int_>(gym_space.attr("n")), feature_atom_vector_begin);
     } catch (const py::cast_error& e) {
         py::print("ERROR: Python casting error (python object of unexpected type) when trying to interpret Gym discrete space size as a python int");
         return std::unique_ptr<GymSpace>();
@@ -264,7 +298,26 @@ std::unique_ptr<GymSpace> DiscreteSpace::import_from_python(const py::object& gy
 }
 
 
-void DiscreteSpace::convert_element_to_feature_atoms(const py::object& element, std::vector<int>& feature_atoms) const {
+template <>
+void DiscreteSpace<GymSpace::ENCODING_BYTE_VECTOR>::convert_element_to_feature_atoms(const py::object& element, std::vector<int>& feature_atoms) const {
+    try {
+        if (!py::isinstance<py::int_>(element)) {
+            py::print("ERROR: Gym discrete space element not of type 'int'");
+            return;
+        }
+        std::int64_t myint = py::cast<py::int_>(element);
+        unsigned char* byte_array = reinterpret_cast<unsigned char *>(&myint);
+        for (unsigned i = 0 ; i < sizeof(std::int64_t) ; i++) {
+            feature_atoms[feature_atom_vector_begin_ + i] = byte_array[i];
+        }
+    } catch (const py::cast_error& e) {
+        py::print("ERROR: Python casting error (python object of unexpected type) when trying to convert Gym discrete space element to a feature atom vector");
+    }
+}
+
+
+template <>
+void DiscreteSpace<GymSpace::ENCODING_VARIABLE_VECTOR>::convert_element_to_feature_atoms(const py::object& element, std::vector<int>& feature_atoms) const {
     try {
         if (!py::isinstance<py::int_>(element)) {
             py::print("ERROR: Gym discrete space element not of type 'int'");
@@ -277,18 +330,40 @@ void DiscreteSpace::convert_element_to_feature_atoms(const py::object& element, 
 }
 
 
-py::object DiscreteSpace::convert_feature_atoms_to_element(const std::vector<int>& feature_atoms) const {
+template <>
+py::object DiscreteSpace<GymSpace::ENCODING_BYTE_VECTOR>::convert_feature_atoms_to_element(const std::vector<int>& feature_atoms) const {
+    unsigned char* byte_array = new unsigned char[sizeof(std::int64_t)];
+    for (unsigned int i = 0 ; i < sizeof(std::int64_t) ; i++) {
+        byte_array[i] = feature_atoms[feature_atom_vector_begin_ + i];
+    }
+    std::int64_t myint = *reinterpret_cast<std::int64_t*>(byte_array);
+    delete[] byte_array;
+    return py::int_(myint);
+}
+
+
+template <>
+py::object DiscreteSpace<GymSpace::ENCODING_VARIABLE_VECTOR>::convert_feature_atoms_to_element(const std::vector<int>& feature_atoms) const {
     return py::int_(feature_atoms[feature_atom_vector_begin_]);
 }
 
 
-MultiBinarySpace::MultiBinarySpace(const py::int_& n, unsigned int feature_atom_vector_begin)
+template <>
+MultiBinarySpace<GymSpace::ENCODING_BYTE_VECTOR>::MultiBinarySpace(const py::int_& n, unsigned int feature_atom_vector_begin)
+: GymSpace(feature_atom_vector_begin), n_(n) {
+    number_of_feature_atoms_ = (n_ % 8 == 0) ? (n_ / 8) : ((n_ / 8) + 1);
+}
+
+
+template <>
+MultiBinarySpace<GymSpace::ENCODING_VARIABLE_VECTOR>::MultiBinarySpace(const py::int_& n, unsigned int feature_atom_vector_begin)
 : GymSpace(feature_atom_vector_begin), n_(n) {
     number_of_feature_atoms_ = n_;
 }
 
 
-std::unique_ptr<GymSpace> MultiBinarySpace::import_from_python(const py::object& gym_space, unsigned int feature_atom_vector_begin) {
+template <GymSpace::Encoding E>
+std::unique_ptr<GymSpace> MultiBinarySpace<E>::import_from_python(const py::object& gym_space, unsigned int feature_atom_vector_begin) {
     try {
         if (!py::hasattr(gym_space, "n")) {
             py::print("ERROR: Gym multi-binary space missing attribute 'n'");
@@ -298,7 +373,7 @@ std::unique_ptr<GymSpace> MultiBinarySpace::import_from_python(const py::object&
             py::print("ERROR: Gym multi-binary space's 'n' not of type 'int'");
             return std::unique_ptr<GymSpace>();
         }
-        return std::make_unique<MultiBinarySpace>(py::cast<py::int_>(gym_space.attr("n")), feature_atom_vector_begin);
+        return std::make_unique<MultiBinarySpace<E>>(py::cast<py::int_>(gym_space.attr("n")), feature_atom_vector_begin);
     } catch (const py::cast_error& e) {
         py::print("ERROR: Python casting error (python object of unexpected type) when trying to interpret Gym multi-binary space dimension as a python int");
         return std::unique_ptr<GymSpace>();
@@ -306,7 +381,37 @@ std::unique_ptr<GymSpace> MultiBinarySpace::import_from_python(const py::object&
 }
 
 
-void MultiBinarySpace::convert_element_to_feature_atoms(const py::object& element, std::vector<int>& feature_atoms) const {
+template <>
+void MultiBinarySpace<GymSpace::ENCODING_BYTE_VECTOR>::convert_element_to_feature_atoms(const py::object& element, std::vector<int>& feature_atoms) const {
+    try {
+        if (!py::isinstance<py::array_t<std::int8_t>>(element)) {
+            py::print("ERROR: Gym multi-binary space element not a numpy array of int8 dtype");
+            return;
+        }
+        py::buffer_info buf = py::cast<py::array_t<std::int8_t>>(element).request();
+        if (buf.size != n_) {
+            py::print("ERROR: Gym multi-binary space element numpy array not of same dimension as the space's dimension");
+            return;
+        }
+        unsigned int current_bit = 0;
+        for (unsigned int i = 0 ; i < number_of_feature_atoms_ ; i++) {
+            unsigned char c = 0;
+            for (unsigned int j = 0 ; j < 8 ; j++) {
+                if (((current_bit + j) < buf.size) && (((std::int8_t*) buf.ptr)[current_bit + j] == 1)) {
+                    c |= (1 << j);
+                }
+            }
+            feature_atoms[feature_atom_vector_begin_ + i] = c;
+            current_bit += 8;
+        }
+    } catch (const py::cast_error& e) {
+        py::print("ERROR: Python casting error (python object of unexpected type) when trying to convert Gym multi-binary space element to a feature atom vector");
+    }
+}
+
+
+template <>
+void MultiBinarySpace<GymSpace::ENCODING_VARIABLE_VECTOR>::convert_element_to_feature_atoms(const py::object& element, std::vector<int>& feature_atoms) const {
     try {
         if (!py::isinstance<py::array_t<std::int8_t>>(element)) {
             py::print("ERROR: Gym multi-binary space element not a numpy array of int8 dtype");
@@ -326,7 +431,29 @@ void MultiBinarySpace::convert_element_to_feature_atoms(const py::object& elemen
 }
 
 
-py::object MultiBinarySpace::convert_feature_atoms_to_element(const std::vector<int>& feature_atoms) const {
+template <>
+py::object MultiBinarySpace<GymSpace::ENCODING_BYTE_VECTOR>::convert_feature_atoms_to_element(const std::vector<int>& feature_atoms) const {
+    py::array_t<std::int8_t> result = py::array_t<std::int8_t>(n_);
+    py::buffer_info buf = result.request();
+    unsigned int current_bit = 0;
+    for (unsigned int i = 0 ; i < number_of_feature_atoms_ ; i++) {
+        unsigned char c = feature_atoms[feature_atom_vector_begin_ + i];
+        for (unsigned int j = 0 ; j < 8 ; j++) {
+            if ((current_bit + j) < buf.size) {
+                ((std::int8_t*) buf.ptr)[current_bit + j] = (std::int8_t) c % 2;
+                c /= 2;
+            } else {
+                break;
+            }
+        }
+        current_bit += 8;
+    }
+    return result;
+}
+
+
+template <>
+py::object MultiBinarySpace<GymSpace::ENCODING_VARIABLE_VECTOR>::convert_feature_atoms_to_element(const std::vector<int>& feature_atoms) const {
     py::array_t<std::int8_t> result = py::array_t<std::int8_t>(n_);
     py::buffer_info buf = result.request();
     for (unsigned int i = 0 ; i < n_ ; i++) {
@@ -336,7 +463,20 @@ py::object MultiBinarySpace::convert_feature_atoms_to_element(const std::vector<
 }
 
 
-MultiDiscreteSpace::MultiDiscreteSpace(const py::array_t<unsigned int>& nvec, unsigned int feature_atom_vector_begin)
+template <>
+MultiDiscreteSpace<GymSpace::ENCODING_BYTE_VECTOR>::MultiDiscreteSpace(const py::array_t<unsigned int>& nvec, unsigned int feature_atom_vector_begin)
+try : GymSpace(feature_atom_vector_begin), nvec_(nvec) {
+    if (nvec_.ndim() != 1) {
+        throw std::domain_error("Gym multi-discrete space dimension different from 1");
+    }
+    number_of_feature_atoms_ = nvec_.size() * sizeof(std::int64_t);
+} catch (const std::exception& e) {
+    throw;
+}
+
+
+template <>
+MultiDiscreteSpace<GymSpace::ENCODING_VARIABLE_VECTOR>::MultiDiscreteSpace(const py::array_t<unsigned int>& nvec, unsigned int feature_atom_vector_begin)
 try : GymSpace(feature_atom_vector_begin), nvec_(nvec) {
     if (nvec_.ndim() != 1) {
         throw std::domain_error("Gym multi-discrete space dimension different from 1");
@@ -347,7 +487,8 @@ try : GymSpace(feature_atom_vector_begin), nvec_(nvec) {
 }
 
 
-std::unique_ptr<GymSpace> MultiDiscreteSpace::import_from_python(const py::object& gym_space, unsigned int feature_atom_vector_begin) {
+template <GymSpace::Encoding E>
+std::unique_ptr<GymSpace> MultiDiscreteSpace<E>::import_from_python(const py::object& gym_space, unsigned int feature_atom_vector_begin) {
     try {
         if (!py::hasattr(gym_space, "nvec")) {
             py::print("ERROR: Gym multi-discrete space missing attribute 'nvec'");
@@ -357,7 +498,7 @@ std::unique_ptr<GymSpace> MultiDiscreteSpace::import_from_python(const py::objec
             py::print("ERROR: Gym multi-discrete space's 'nvec' not a numpy array");
             return std::unique_ptr<GymSpace>();
         }
-        return std::make_unique<MultiDiscreteSpace>(py::cast<py::array_t<std::int64_t>>(gym_space.attr("nvec")), feature_atom_vector_begin);
+        return std::make_unique<MultiDiscreteSpace<E>>(py::cast<py::array_t<std::int64_t>>(gym_space.attr("nvec")), feature_atom_vector_begin);
     } catch (const py::cast_error& e) {
         py::print("ERROR: Python casting error (python object of unexpected type) when trying to interpret Gym multi-discrete space dimension vector as a python array of positive integers");
         return std::unique_ptr<GymSpace>();
@@ -365,7 +506,32 @@ std::unique_ptr<GymSpace> MultiDiscreteSpace::import_from_python(const py::objec
 }
 
 
-void MultiDiscreteSpace::convert_element_to_feature_atoms(const py::object& element, std::vector<int>& feature_atoms) const {
+template <>
+void MultiDiscreteSpace<GymSpace::ENCODING_BYTE_VECTOR>::convert_element_to_feature_atoms(const py::object& element, std::vector<int>& feature_atoms) const {
+    try {
+        if (!py::isinstance<py::array_t<std::int64_t>>(element)) {
+            py::print("ERROR: Gym multi-discrete space element not a numpy array of int64 dtype");
+            return;
+        }
+        py::buffer_info buf = py::cast<py::array_t<std::int64_t>>(element).request();
+        if (buf.size != nvec_.size()) {
+            py::print("ERROR: Gym multi-discrete space element numpy array not of same dimension as the space's dimension");
+            return;
+        }
+        for (unsigned int i = 0 ; i < nvec_.size() ; i++) {
+            unsigned char* byte_array = reinterpret_cast<unsigned char*>(&(((std::int64_t*) buf.ptr)[i]));
+            for (unsigned int j = 0 ; j < sizeof(std::int64_t) ; j++) {
+                feature_atoms[feature_atom_vector_begin_ + (i * sizeof(std::int64_t)) + j] = byte_array[j];
+            }
+        }
+    } catch (const py::cast_error& e) {
+        py::print("ERROR: Python casting error (python object of unexpected type) when trying to convert Gym multi-discrete space element to a feature atom vector");
+    }
+}
+
+
+template <>
+void MultiDiscreteSpace<GymSpace::ENCODING_VARIABLE_VECTOR>::convert_element_to_feature_atoms(const py::object& element, std::vector<int>& feature_atoms) const {
     try {
         if (!py::isinstance<py::array_t<std::int64_t>>(element)) {
             py::print("ERROR: Gym multi-discrete space element not a numpy array of int64 dtype");
@@ -385,7 +551,24 @@ void MultiDiscreteSpace::convert_element_to_feature_atoms(const py::object& elem
 }
 
 
-py::object MultiDiscreteSpace::convert_feature_atoms_to_element(const std::vector<int>& feature_atoms) const {
+template <>
+py::object MultiDiscreteSpace<GymSpace::ENCODING_BYTE_VECTOR>::convert_feature_atoms_to_element(const std::vector<int>& feature_atoms) const {
+    py::array_t<std::int64_t> result = py::array_t<std::int64_t>(nvec_.size());
+    py::buffer_info buf = result.request();
+    unsigned char* byte_array = new unsigned char[sizeof(std::int64_t)];
+    for (unsigned int i = 0 ; i < nvec_.size() ; i++) {
+        for (unsigned int j = 0 ; j < sizeof(std::int64_t) ; j++) {
+            byte_array[j] = feature_atoms[feature_atom_vector_begin_ + (i * sizeof(std::int64_t)) + j];
+        }
+        ((std::int64_t*) buf.ptr)[i] = *reinterpret_cast<std::int64_t*>(byte_array);
+    }
+    delete[] byte_array;
+    return result;
+}
+
+
+template <>
+py::object MultiDiscreteSpace<GymSpace::ENCODING_VARIABLE_VECTOR>::convert_feature_atoms_to_element(const std::vector<int>& feature_atoms) const {
     py::array_t<std::int64_t> result = py::array_t<std::int64_t>(nvec_.size());
     py::buffer_info buf = result.request();
     for (unsigned int i = 0 ; i < nvec_.size() ; i++) {
@@ -395,17 +578,17 @@ py::object MultiDiscreteSpace::convert_feature_atoms_to_element(const std::vecto
 }
 
 
-TupleSpace::TupleSpace(const py::tuple& spaces, double space_relative_precision, unsigned int feature_atom_vector_begin)
+TupleSpace::TupleSpace(const py::tuple& spaces, Encoding encoding, double space_relative_precision, unsigned int feature_atom_vector_begin)
 : GymSpace(feature_atom_vector_begin) {
     number_of_feature_atoms_ = 0;
     for (auto s : spaces) {
-        spaces_.push_back(std::move(GymSpace::import_from_python(py::cast<py::object>(s), space_relative_precision, feature_atom_vector_begin + number_of_feature_atoms_)));
+        spaces_.push_back(std::move(GymSpace::import_from_python(py::cast<py::object>(s), encoding, space_relative_precision, feature_atom_vector_begin + number_of_feature_atoms_)));
         number_of_feature_atoms_ += spaces_.back()->get_number_of_feature_atoms();
     }
 }
 
 
-std::unique_ptr<GymSpace> TupleSpace::import_from_python(const py::object& gym_space, double space_relative_precision, unsigned int feature_atom_vector_begin) {
+std::unique_ptr<GymSpace> TupleSpace::import_from_python(const py::object& gym_space, Encoding encoding, double space_relative_precision, unsigned int feature_atom_vector_begin) {
     try {
         if (!py::hasattr(gym_space, "spaces")) {
             py::print("ERROR: Gym tuple space missing attribute 'spaces'");
@@ -415,7 +598,7 @@ std::unique_ptr<GymSpace> TupleSpace::import_from_python(const py::object& gym_s
             py::print("ERROR: Gym tuple space's 'spaces' not of type 'tuple'");
             return std::unique_ptr<GymSpace>();
         }
-        return std::make_unique<TupleSpace>(py::cast<py::tuple>(gym_space.attr("spaces")), space_relative_precision, feature_atom_vector_begin);
+        return std::make_unique<TupleSpace>(py::cast<py::tuple>(gym_space.attr("spaces")), encoding, space_relative_precision, feature_atom_vector_begin);
     } catch (const py::cast_error& e) {
         py::print("ERROR: Python casting error (python object of unexpected type) when trying to interpret Gym tuple space's subspaces as a python tuple");
         return std::unique_ptr<GymSpace>();
