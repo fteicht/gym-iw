@@ -1,6 +1,7 @@
 // (c) 2019 Florent Teichteil
 
 #include <pybind11/pybind11.h>
+#include <pybind11/functional.h>
 #include <pybind11/stl.h>
 #include "gym_spaces.h"
 
@@ -37,16 +38,12 @@ public :
 
     // export to python
     py::array_t<std::int64_t> convert_observation_to_feature_atoms(const py::object& observation) {
-        std::vector<int> feature_atoms(observation_space_->get_number_of_feature_atoms(), 0);
-        observation_space_->convert_element_to_feature_atoms(observation, feature_atoms);
-        return py::cast(feature_atoms);
+        return py::cast(observation_space_->convert_element_to_feature_atoms(observation));
     }
 
     // export to python
     py::array_t<std::int64_t> convert_action_to_feature_atoms(const py::object& action) {
-        std::vector<int> feature_atoms(action_space_->get_number_of_feature_atoms(), 0);
-        action_space_->convert_element_to_feature_atoms(action, feature_atoms);
-        return py::cast(feature_atoms);
+        return py::cast(action_space_->convert_element_to_feature_atoms(action));
     }
 
     // export to python
@@ -62,14 +59,27 @@ public :
     // export to python
     py::object act(const py::object& observation, double reward, bool done) {
         try {
-            std::vector<int> feature_atoms(observation_space_->get_number_of_feature_atoms(), 0);
-            observation_space_->convert_element_to_feature_atoms(observation, feature_atoms);
+            std::vector<int> observation_encoding = observation_space_->convert_element_to_feature_atoms(observation);
             std::vector<int> action; // TODO: link with planner
             return action_space_->convert_feature_atoms_to_element(action);
         } catch (const std::exception& e) {
             py::print("Python binding error: " + std::string(e.what()));
             return py::object();
         }
+    }
+
+    // export to python
+    void enumerate_observations(const std::function<void(const py::array_t<std::int64_t>&)>& f) {
+        observation_space_->enumerate([&f](const std::vector<int>& v)->void {
+            f(py::cast(v));
+        });
+    }
+
+    // export to python
+    void enumerate_actions(const std::function<void(const py::array_t<std::int64_t>&)>& f) {
+        action_space_->enumerate([&f](const std::vector<int>& v)->void {
+            f(py::cast(v));
+        });
     }
 
     // import from python
@@ -80,9 +90,7 @@ public :
                 return std::vector<int>();
             } else {
                 py::object observation = gym_env_.attr("reset")();
-                std::vector<int> feature_atoms(observation_space_->get_number_of_feature_atoms(), 0);
-                observation_space_->convert_element_to_feature_atoms(observation, feature_atoms);
-                return feature_atoms;
+                return observation_space_->convert_element_to_feature_atoms(observation);
             }
         } catch (const std::exception& e) {
             py::print("Python binding error: " + std::string(e.what()));
@@ -98,8 +106,7 @@ public :
                 return std::vector<int>();
             } else {
                 py::tuple step_return = gym_env_.attr("step")(action_space_->convert_feature_atoms_to_element(action));
-                std::vector<int> feature_atoms(observation_space_->get_number_of_feature_atoms(), 0);
-                observation_space_->convert_element_to_feature_atoms(step_return[0], feature_atoms);
+                std::vector<int> observation_encoding = observation_space_->convert_element_to_feature_atoms(step_return[0]);
                 if (!py::isinstance<py::float_>(step_return[1])) {
                     py::print("ERROR: Gym env's step method's returned tuple's second element not of type 'float'");
                     return std::vector<int>();
@@ -110,7 +117,7 @@ public :
                     return std::vector<int>();
                 }
                 termination = py::cast<double>(step_return[2]);
-                return feature_atoms;
+                return observation_encoding;
             }
         } catch (const std::exception& e) {
             py::print("Python binding error: " + std::string(e.what()));

@@ -2,6 +2,7 @@
 
 #include <pybind11/pybind11.h>
 #include <pybind11/numpy.h>
+#include <functional>
 #include <cmath>
 #include <list>
 #include <map>
@@ -20,8 +21,11 @@ public :
 
     static std::unique_ptr<GymSpace> import_from_python(const py::object& gym_space, Encoding encoding, double space_relative_precision = 0.001, unsigned int feature_atom_vector_begin = 0);
     inline unsigned int get_number_of_feature_atoms() const {return number_of_feature_atoms_;}
+    std::vector<int> convert_element_to_feature_atoms(const py::object& element);
     virtual void convert_element_to_feature_atoms(const py::object& element, std::vector<int>& feature_atoms) const =0;
     virtual py::object convert_feature_atoms_to_element(const std::vector<int>& feature_atoms) const =0;
+    void enumerate(const std::function<void(const std::vector<int>&)>& f) const;
+    virtual void enumerate(const std::function<void(const std::vector<int>&)>& f, std::vector<int>& feature_atoms) const =0;
     
 protected :
     unsigned int number_of_feature_atoms_;
@@ -73,6 +77,10 @@ public :
 
     virtual py::object convert_feature_atoms_to_element(const std::vector<int>& feature_atoms) const {
         return convert_feature_atoms_to_element_generic(feature_atoms);
+    }
+
+    virtual void enumerate(const std::function<void(const std::vector<int>&)>& f, std::vector<int>& feature_atoms) const {
+        enumerate_generic(f, feature_atoms);
     }
 
 private :
@@ -157,6 +165,61 @@ private :
     py::object convert_feature_atoms_to_element_byte(const std::vector<int>& feature_atoms) const;
     py::object convert_feature_atoms_to_element_int(const std::vector<int>& feature_atoms) const;
     py::object convert_feature_atoms_to_element_float(const std::vector<int>& feature_atoms) const;
+    
+    // Enumerator for byte vector encoding
+    template <Encoding EE = E, typename TT = T>
+    inline std::enable_if_t<(EE == GymSpace::ENCODING_BYTE_VECTOR) && std::is_same<TT, bool>::value, void>
+    enumerate_generic(const std::function<void(const std::vector<int>&)>& f, std::vector<int>& feature_atoms) const {
+        enumerate_byte_bool(0, low_.request(), high_.request(), f, feature_atoms);
+    }
+
+    // Enumerator for byte vector encoding
+    template <Encoding EE = E, typename TT = T>
+    inline std::enable_if_t<(EE == GymSpace::ENCODING_BYTE_VECTOR) && std::is_integral<TT>::value && !std::is_same<TT, bool>::value, void>
+    enumerate_generic(const std::function<void(const std::vector<int>&)>& f, std::vector<int>& feature_atoms) const {
+        enumerate_byte_int(0, low_.request(), high_.request(), f, feature_atoms);
+    }
+
+    // Enumerator for byte vector encoding
+    template <Encoding EE = E, typename TT = T>
+    inline std::enable_if_t<(EE == GymSpace::ENCODING_BYTE_VECTOR) && std::is_floating_point<TT>::value, void>
+    enumerate_generic(const std::function<void(const std::vector<int>&)>& f, std::vector<int>& feature_atoms) const {
+        enumerate_byte_float(0, low_.request(), high_.request(), f, feature_atoms);
+    }
+
+    // Enumerator for variable vector encoding
+    template <Encoding EE = E, typename TT = T>
+    inline std::enable_if_t<(EE == GymSpace::ENCODING_VARIABLE_VECTOR) && std::is_same<TT, bool>::value, void>
+    enumerate_generic(const std::function<void(const std::vector<int>&)>& f, std::vector<int>& feature_atoms) const {
+        enumerate_variable_bool(0, low_.request(), high_.request(), f, feature_atoms);
+    }
+
+    // Enumerator for variable vector encoding
+    template <Encoding EE = E, typename TT = T>
+    inline std::enable_if_t<(EE == GymSpace::ENCODING_VARIABLE_VECTOR) && std::is_integral<TT>::value && !std::is_same<TT, bool>::value, void>
+    enumerate_generic(const std::function<void(const std::vector<int>&)>& f, std::vector<int>& feature_atoms) const {
+        enumerate_variable_int(0, low_.request(), high_.request(), f, feature_atoms);
+    }
+
+    // Enumerator for variable vector encoding
+    template <Encoding EE = E, typename TT = T>
+    inline std::enable_if_t<(EE == GymSpace::ENCODING_VARIABLE_VECTOR) && std::is_floating_point<TT>::value, void>
+    enumerate_generic(const std::function<void(const std::vector<int>&)>& f, std::vector<int>& feature_atoms) const {
+        enumerate_variable_float(0, low_.request(), high_.request(), f, feature_atoms);
+    }
+
+    void enumerate_byte_bool(unsigned int current_item, const py::buffer_info & lbuf, const py::buffer_info & hbuf,
+                             const std::function<void(const std::vector<int>&)>& f, std::vector<int>& feature_atoms) const;
+    void enumerate_byte_int(unsigned int current_item, const py::buffer_info & lbuf, const py::buffer_info & hbuf,
+                            const std::function<void(const std::vector<int>&)>& f, std::vector<int>& feature_atoms) const;
+    void enumerate_byte_float(unsigned int current_item, const py::buffer_info & lbuf, const py::buffer_info & hbuf,
+                              const std::function<void(const std::vector<int>&)>& f, std::vector<int>& feature_atoms) const;
+    void enumerate_variable_bool(unsigned int current_item, const py::buffer_info & lbuf, const py::buffer_info & hbuf,
+                                 const std::function<void(const std::vector<int>&)>& f, std::vector<int>& feature_atoms) const;
+    void enumerate_variable_int(unsigned int current_item, const py::buffer_info & lbuf, const py::buffer_info & hbuf,
+                                const std::function<void(const std::vector<int>&)>& f, std::vector<int>& feature_atoms) const;
+    void enumerate_variable_float(unsigned int current_item, const py::buffer_info & lbuf, const py::buffer_info & hbuf,
+                                  const std::function<void(const std::vector<int>&)>& f, std::vector<int>& feature_atoms) const;
 };
 
 
@@ -168,9 +231,13 @@ public :
     static std::unique_ptr<GymSpace> import_from_python(const py::object& gym_space, Encoding encoding, double space_relative_precision = 0.001, unsigned int feature_atom_vector_begin = 0);
     virtual void convert_element_to_feature_atoms(const py::object& element, std::vector<int>& feature_atoms) const;
     virtual py::object convert_feature_atoms_to_element(const std::vector<int>& feature_atoms) const;
+    virtual void enumerate(const std::function<void(const std::vector<int>&)>& f, std::vector<int>& feature_atoms) const;
 
 private :
     std::map<std::string, std::unique_ptr<GymSpace>> spaces_;
+
+    void enumerate(std::map<std::string, std::unique_ptr<GymSpace>>::const_iterator current_space,
+                   const std::function<void(const std::vector<int>&)>& f, std::vector<int>& feature_atoms) const;
 };
 
 
@@ -183,6 +250,7 @@ public :
     static std::unique_ptr<GymSpace> import_from_python(const py::object& gym_space, unsigned int feature_atom_vector_begin = 0);
     virtual void convert_element_to_feature_atoms(const py::object& element, std::vector<int>& feature_atoms) const;
     virtual py::object convert_feature_atoms_to_element(const std::vector<int>& feature_atoms) const;
+    virtual void enumerate(const std::function<void(const std::vector<int>&)>& f, std::vector<int>& feature_atoms) const;
     
 private :
     std::int64_t n_;
@@ -198,9 +266,15 @@ public :
     static std::unique_ptr<GymSpace> import_from_python(const py::object& gym_space, unsigned int feature_atom_vector_begin = 0);
     virtual void convert_element_to_feature_atoms(const py::object& element, std::vector<int>& feature_atoms) const;
     virtual py::object convert_feature_atoms_to_element(const std::vector<int>& feature_atoms) const;
+    virtual void enumerate(const std::function<void(const std::vector<int>&)>& f, std::vector<int>& feature_atoms) const;
     
 private :
     std::int8_t n_;
+
+    void enumerate_byte(unsigned int current_bit, unsigned char current_byte,
+                        const std::function<void(const std::vector<int>&)>& f, std::vector<int>& feature_atoms) const;
+    void enumerate_variable(unsigned int current_bit,
+                            const std::function<void(const std::vector<int>&)>& f, std::vector<int>& feature_atoms) const;
 };
 
 
@@ -213,9 +287,13 @@ public :
     static std::unique_ptr<GymSpace> import_from_python(const py::object& gym_space, unsigned int feature_atom_vector_begin = 0);
     virtual void convert_element_to_feature_atoms(const py::object& element, std::vector<int>& feature_atoms) const;
     virtual py::object convert_feature_atoms_to_element(const std::vector<int>& feature_atoms) const;
+    virtual void enumerate(const std::function<void(const std::vector<int>&)>& f, std::vector<int>& feature_atoms) const;
     
 private :
-    py::array_t<std::int64_t> nvec_;
+    mutable py::array_t<std::int64_t> nvec_; // dirty trick to make py::array_t<T>::request() work with 'const this' since it seems it does not modify the array
+
+    void enumerate(unsigned int current_item, const py::buffer_info& buf,
+                   const std::function<void(const std::vector<int>&)>& f, std::vector<int>& feature_atoms) const;
 };
 
 
@@ -227,7 +305,10 @@ public :
     static std::unique_ptr<GymSpace> import_from_python(const py::object& gym_space, Encoding encoding, double space_relative_precision = 0.001, unsigned int feature_atom_vector_begin = 0);
     virtual void convert_element_to_feature_atoms(const py::object& element, std::vector<int>& feature_atoms) const;
     virtual py::object convert_feature_atoms_to_element(const std::vector<int>& feature_atoms) const;
+    virtual void enumerate(const std::function<void(const std::vector<int>&)>& f, std::vector<int>& feature_atoms) const;
     
 private :
     std::list<std::unique_ptr<GymSpace>> spaces_;
+    void enumerate(std::list<std::unique_ptr<GymSpace>>::const_iterator current_space,
+                   const std::function<void(const std::vector<int>&)>& f, std::vector<int>& feature_atoms) const;
 };

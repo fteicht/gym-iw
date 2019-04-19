@@ -13,6 +13,8 @@ PYBIND11_MODULE(gym_iw, giw) {
             .def("convert_action_to_feature_atoms", &GymIwAgent::convert_action_to_feature_atoms)
             .def("convert_feature_atoms_to_observation", &GymIwAgent::convert_feature_atoms_to_observation)
             .def("convert_feature_atoms_to_action", &GymIwAgent::convert_feature_atoms_to_action)
+            .def("enumerate_observations", &GymIwAgent::enumerate_observations)
+            .def("enumerate_actions", &GymIwAgent::enumerate_actions)
             //.def("act", &GymIwAgent::act)
             ;
 }

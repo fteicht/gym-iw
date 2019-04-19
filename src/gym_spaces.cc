@@ -63,6 +63,21 @@ std::unique_ptr<GymSpace> GymSpace::import_from_python(const py::object& gym_spa
 }
 
 
+std::vector<int> GymSpace::convert_element_to_feature_atoms(const py::object& element) {
+    std::vector<int> feature_atoms(number_of_feature_atoms_);
+    convert_element_to_feature_atoms(element, feature_atoms);
+    return feature_atoms;
+}
+
+
+void GymSpace::enumerate(const std::function<void(const std::vector<int>&)>& f) const {
+    std::vector<int> feature_atoms(number_of_feature_atoms_);
+    enumerate(f, feature_atoms);
+}
+
+
+// --- BoxSpace ---
+
 template <GymSpace::Encoding E, typename T>
 std::unique_ptr<GymSpace> BoxSpace<E, T>::import_from_python(const py::object& gym_space, double space_relative_precision, unsigned int feature_atom_vector_begin) {
     try {
@@ -197,6 +212,123 @@ py::object BoxSpace<E, T>::convert_feature_atoms_to_element_float(const std::vec
 }
 
 
+template <GymSpace::Encoding E, typename T>
+void BoxSpace<E, T>::enumerate_byte_bool(unsigned int current_item, const py::buffer_info & lbuf, const py::buffer_info & hbuf,
+                                        const std::function<void(const std::vector<int>&)>& f, std::vector<int>& feature_atoms) const {
+    if (((bool*) lbuf.ptr)[current_item] != ((bool*) hbuf.ptr)[current_item]) {
+        for (auto b : {false, true}) {
+            unsigned char* byte_array = reinterpret_cast<unsigned char*>(&b);
+            for (unsigned int j = 0 ; j < sizeof(bool) ; j++) {
+                feature_atoms[feature_atom_vector_begin_ + (current_item * sizeof(bool)) + j] = byte_array[j];
+            }
+            if ((current_item + 1) < low_.size()) {
+                enumerate_byte_bool(current_item + 1, lbuf, hbuf, f, feature_atoms);
+            } else {
+                f(feature_atoms);
+            }
+        }
+    } else {
+        unsigned char* byte_array = reinterpret_cast<unsigned char*>(&(((bool*) lbuf.ptr)[current_item]));
+        for (unsigned int j = 0 ; j < sizeof(bool) ; j++) {
+            feature_atoms[feature_atom_vector_begin_ + (current_item * sizeof(bool)) + j] = byte_array[j];
+        }
+        if ((current_item + 1) < low_.size()) {
+            enumerate_byte_bool(current_item + 1, lbuf, hbuf, f, feature_atoms);
+        } else {
+            f(feature_atoms);
+        }
+    }
+}
+
+
+template <GymSpace::Encoding E, typename T>
+void BoxSpace<E, T>::enumerate_byte_int(unsigned int current_item, const py::buffer_info & lbuf, const py::buffer_info & hbuf,
+                                        const std::function<void(const std::vector<int>&)>& f, std::vector<int>& feature_atoms) const {
+    for (T i = ((T*) lbuf.ptr)[current_item] ; i <= ((T*) hbuf.ptr)[current_item] ; i++) {
+        unsigned char* byte_array = reinterpret_cast<unsigned char*>(&i);
+        for (unsigned int j = 0 ; j < sizeof(T) ; j++) {
+            feature_atoms[feature_atom_vector_begin_ + (current_item * sizeof(T)) + j] = byte_array[j];
+        }
+        if ((current_item + 1) < low_.size()) {
+            enumerate_byte_int(current_item + 1, lbuf, hbuf, f, feature_atoms);
+        } else {
+            f(feature_atoms);
+        }
+    }
+}
+
+
+template <GymSpace::Encoding E, typename T>
+void BoxSpace<E, T>::enumerate_byte_float(unsigned int current_item, const py::buffer_info & lbuf, const py::buffer_info & hbuf,
+                                          const std::function<void(const std::vector<int>&)>& f, std::vector<int>& feature_atoms) const {
+    for (T i = ((T*) lbuf.ptr)[current_item] ; i <= ((T*) hbuf.ptr)[current_item] ; i += std::numeric_limits<T>::epsilon()) {
+        unsigned char* byte_array = reinterpret_cast<unsigned char*>(&i);
+        for (unsigned int j = 0 ; j < sizeof(T) ; j++) {
+            feature_atoms[feature_atom_vector_begin_ + (current_item * sizeof(T)) + j] = byte_array[j];
+        }
+        if ((current_item + 1) < low_.size()) {
+            enumerate_byte_float(current_item + 1, lbuf, hbuf, f, feature_atoms);
+        } else {
+            f(feature_atoms);
+        }
+    }
+}
+
+
+template <GymSpace::Encoding E, typename T>
+void BoxSpace<E, T>::enumerate_variable_bool(unsigned int current_item, const py::buffer_info & lbuf, const py::buffer_info & hbuf,
+                                             const std::function<void(const std::vector<int>&)>& f, std::vector<int>& feature_atoms) const {
+    if (((bool*) lbuf.ptr)[current_item] != ((bool*) hbuf.ptr)[current_item]) {
+        for (auto b : {false, true}) {
+            feature_atoms[feature_atom_vector_begin_ + current_item] = b;
+            if ((current_item + 1) < low_.size()) {
+                enumerate_variable_bool(current_item + 1, lbuf, hbuf, f, feature_atoms);
+            } else {
+                f(feature_atoms);
+            }
+        }
+    } else {
+        feature_atoms[feature_atom_vector_begin_ + current_item] = ((bool*) lbuf.ptr)[current_item];
+        if ((current_item + 1) < low_.size()) {
+            enumerate_variable_bool(current_item + 1, lbuf, hbuf, f, feature_atoms);
+        } else {
+            f(feature_atoms);
+        }
+    }
+}
+
+
+template <GymSpace::Encoding E, typename T>
+void BoxSpace<E, T>::enumerate_variable_int(unsigned int current_item, const py::buffer_info & lbuf, const py::buffer_info & hbuf,
+                                            const std::function<void(const std::vector<int>&)>& f, std::vector<int>& feature_atoms) const {
+    for (T i = ((T*) lbuf.ptr)[current_item] ; i <= ((T*) hbuf.ptr)[current_item] ; i++) {
+        feature_atoms[feature_atom_vector_begin_ + current_item] = i;
+        if ((current_item + 1) < low_.size()) {
+            enumerate_variable_int(current_item + 1, lbuf, hbuf, f, feature_atoms);
+        } else {
+            f(feature_atoms);
+        }
+    }
+}
+
+
+template <GymSpace::Encoding E, typename T>
+void BoxSpace<E, T>::enumerate_variable_float(unsigned int current_item, const py::buffer_info & lbuf, const py::buffer_info & hbuf,
+                                              const std::function<void(const std::vector<int>&)>& f, std::vector<int>& feature_atoms) const {
+    unsigned int nb_clusters = (unsigned int) std::floor(1.0 / space_relative_precision_);
+    for (unsigned int i = 0 ; i <= nb_clusters ; i++) {
+        feature_atoms[feature_atom_vector_begin_ + current_item] = i;
+        if ((current_item + 1) < low_.size()) {
+            enumerate_variable_float(current_item + 1, lbuf, hbuf, f, feature_atoms);
+        } else {
+            f(feature_atoms);
+        }
+    }
+}
+
+
+// --- DictSpace ---
+
 DictSpace::DictSpace(const py::dict& spaces, Encoding encoding, double space_relative_precision, unsigned int feature_atom_vector_begin)
 try : GymSpace(feature_atom_vector_begin) {
     number_of_feature_atoms_ = 0;
@@ -264,6 +396,26 @@ py::object DictSpace::convert_feature_atoms_to_element(const std::vector<int>& f
     return result;
 }
 
+
+void DictSpace::enumerate(const std::function<void(const std::vector<int>&)>& f, std::vector<int>& feature_atoms) const {
+    enumerate(spaces_.begin(), f, feature_atoms);
+}
+
+
+void DictSpace::enumerate(std::map<std::string, std::unique_ptr<GymSpace>>::const_iterator current_space,
+                          const std::function<void(const std::vector<int>&)>& f, std::vector<int>& feature_atoms) const {
+    current_space->second->enumerate([this,&current_space,&f,&feature_atoms](const std::vector<int>& v)->void {
+        std::map<std::string, std::unique_ptr<GymSpace>>::const_iterator next_space = current_space;
+        if ((++next_space) != spaces_.end()) {
+            enumerate(next_space, f, feature_atoms);
+        } else {
+            f(v); // v == feature_atoms
+        }
+    }, feature_atoms);
+}
+
+
+// -- DiscreteSpace ---
 
 template <>
 DiscreteSpace<GymSpace::ENCODING_BYTE_VECTOR>::DiscreteSpace(const py::int_& n, unsigned int feature_atom_vector_begin)
@@ -347,6 +499,29 @@ py::object DiscreteSpace<GymSpace::ENCODING_VARIABLE_VECTOR>::convert_feature_at
     return py::int_(feature_atoms[feature_atom_vector_begin_]);
 }
 
+
+template <>
+void DiscreteSpace<GymSpace::ENCODING_BYTE_VECTOR>::enumerate(const std::function<void(const std::vector<int>&)>& f, std::vector<int>& feature_atoms) const {
+    for (unsigned int i = 0 ; i < n_ ; i++) {
+        unsigned char* byte_array = reinterpret_cast<unsigned char *>(&i);
+        for (unsigned int j = 0 ; j < sizeof(std::int64_t) ; j++) {
+            feature_atoms[feature_atom_vector_begin_ + j] = byte_array[j];
+        }
+        f(feature_atoms);
+    }
+}
+
+
+template <>
+void DiscreteSpace<GymSpace::ENCODING_VARIABLE_VECTOR>::enumerate(const std::function<void(const std::vector<int>&)>& f, std::vector<int>& feature_atoms) const {
+    for (unsigned int i = 0 ; i < n_ ; i++) {
+        feature_atoms[feature_atom_vector_begin_] = i;
+        f(feature_atoms);
+    }
+}
+
+
+// --- MultiBinarySpace ---
 
 template <>
 MultiBinarySpace<GymSpace::ENCODING_BYTE_VECTOR>::MultiBinarySpace(const py::int_& n, unsigned int feature_atom_vector_begin)
@@ -464,6 +639,58 @@ py::object MultiBinarySpace<GymSpace::ENCODING_VARIABLE_VECTOR>::convert_feature
 
 
 template <>
+void MultiBinarySpace<GymSpace::ENCODING_BYTE_VECTOR>::enumerate_byte(unsigned int current_bit, unsigned char current_byte,
+                                                                      const std::function<void(const std::vector<int>&)>& f,
+                                                                      std::vector<int>& feature_atoms) const {
+    for (auto e : {0, 1}) {
+        unsigned int byte_count = current_bit % 8;
+        unsigned char updated_byte = current_byte;
+        if (e == 1) {
+            updated_byte |= (1 << byte_count);
+        }
+        if ((byte_count == 7) || ((current_bit + 1) == n_)) {
+            feature_atoms[feature_atom_vector_begin_ + (current_bit / 8)] = updated_byte;
+            updated_byte = 0;
+        }
+        if ((current_bit + 1) < n_) {
+            enumerate_byte(current_bit + 1, updated_byte, f, feature_atoms);
+        } else {
+            f(feature_atoms);
+        }
+    }
+}
+
+
+template <>
+void MultiBinarySpace<GymSpace::ENCODING_VARIABLE_VECTOR>::enumerate_variable(unsigned int current_bit,
+                                                                              const std::function<void(const std::vector<int>&)>& f,
+                                                                              std::vector<int>& feature_atoms) const {
+    for (auto e : {0, 1}) {
+        feature_atoms[feature_atom_vector_begin_ + current_bit] = e;
+        if ((current_bit + 1) < n_) {
+            enumerate_variable(current_bit + 1, f, feature_atoms);
+        } else {
+            f(feature_atoms);
+        }
+    }
+}
+
+
+template <>
+void MultiBinarySpace<GymSpace::ENCODING_BYTE_VECTOR>::enumerate(const std::function<void(const std::vector<int>&)>& f, std::vector<int>& feature_atoms) const {
+    enumerate_byte(0, 0, f, feature_atoms);
+}
+
+
+template <>
+void MultiBinarySpace<GymSpace::ENCODING_VARIABLE_VECTOR>::enumerate(const std::function<void(const std::vector<int>&)>& f, std::vector<int>& feature_atoms) const {
+    enumerate_variable(0, f, feature_atoms);
+}
+
+
+// --- MultiDiscreteSpace ---
+
+template <>
 MultiDiscreteSpace<GymSpace::ENCODING_BYTE_VECTOR>::MultiDiscreteSpace(const py::array_t<unsigned int>& nvec, unsigned int feature_atom_vector_begin)
 try : GymSpace(feature_atom_vector_begin), nvec_(nvec) {
     if (nvec_.ndim() != 1) {
@@ -578,6 +805,47 @@ py::object MultiDiscreteSpace<GymSpace::ENCODING_VARIABLE_VECTOR>::convert_featu
 }
 
 
+template <GymSpace::Encoding E>
+void MultiDiscreteSpace<E>::enumerate(const std::function<void(const std::vector<int>&)>& f, std::vector<int>& feature_atoms) const {
+    enumerate(0, nvec_.request(), f, feature_atoms);
+}
+
+
+template <>
+void MultiDiscreteSpace<GymSpace::ENCODING_BYTE_VECTOR>::enumerate(unsigned int current_item, const py::buffer_info& buf,
+                                                                   const std::function<void(const std::vector<int>&)>& f,
+                                                                   std::vector<int>& feature_atoms) const {
+    for (unsigned int i = 0 ; i < ((std::int64_t*) buf.ptr)[current_item] ; i++) {
+        unsigned char* byte_array = reinterpret_cast<unsigned char*>(&i);
+        for (unsigned int j = 0 ; j < sizeof(std::int64_t) ; j++) {
+            feature_atoms[feature_atom_vector_begin_ + (current_item * sizeof(std::int64_t)) + j] = byte_array[j];
+        }
+        if ((current_item + 1) < nvec_.size()) {
+            enumerate(current_item + 1, buf, f, feature_atoms);
+        } else {
+            f(feature_atoms);
+        }
+    }
+}
+
+
+template <>
+void MultiDiscreteSpace<GymSpace::ENCODING_VARIABLE_VECTOR>::enumerate(unsigned int current_item, const py::buffer_info& buf,
+                                                                       const std::function<void(const std::vector<int>&)>& f,
+                                                                       std::vector<int>& feature_atoms) const {
+    for (unsigned int i = 0 ; i < ((std::int64_t*) buf.ptr)[current_item] ; i++) {
+        feature_atoms[feature_atom_vector_begin_ + current_item] = i;
+        if ((current_item + 1) < nvec_.size()) {
+            enumerate(current_item + 1, buf, f, feature_atoms);
+        } else {
+            f(feature_atoms);
+        }
+    }
+}
+
+
+// --- TupleSpace ---
+
 TupleSpace::TupleSpace(const py::tuple& spaces, Encoding encoding, double space_relative_precision, unsigned int feature_atom_vector_begin)
 : GymSpace(feature_atom_vector_begin) {
     number_of_feature_atoms_ = 0;
@@ -640,4 +908,22 @@ py::object TupleSpace::convert_feature_atoms_to_element(const std::vector<int>& 
         i++;
     }
     return result;
+}
+
+
+void TupleSpace::enumerate(const std::function<void(const std::vector<int>&)>& f, std::vector<int>& feature_atoms) const {
+    enumerate(spaces_.begin(), f, feature_atoms);
+}
+
+
+void TupleSpace::enumerate(std::list<std::unique_ptr<GymSpace>>::const_iterator current_space,
+                           const std::function<void(const std::vector<int>&)>& f, std::vector<int>& feature_atoms) const {
+    (*current_space)->enumerate([this,&current_space,&f,&feature_atoms](const std::vector<int>& v)->void {
+        std::list<std::unique_ptr<GymSpace>>::const_iterator next_space = current_space;
+        if ((++next_space) != spaces_.end()) {
+            enumerate(next_space, f, feature_atoms);
+        } else {
+            f(v); // v == feature_atoms
+        }
+    }, feature_atoms);
 }
