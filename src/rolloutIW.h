@@ -11,50 +11,41 @@
 #include "sim_planner.h"
 #include "logger.h"
 
-struct RolloutIW : SimPlanner {
-    const int screen_features_;
-    const float time_budget_;
+template <typename Environment>
+struct RolloutIW : SimPlanner<Environment> {
+    const double time_budget_;
     const bool novelty_subtables_;
     const bool random_actions_;
     const size_t max_rep_;
-    const float discount_;
-    const float alpha_;
-    const bool use_alpha_to_update_reward_for_death_;
+    const double discount_;
     const int nodes_threshold_;
     const size_t max_depth_;
 
     mutable size_t num_rollouts_;
     mutable size_t num_expansions_;
     mutable size_t num_cases_[4];
-    mutable float total_time_;
-    mutable float expand_time_;
+    mutable double total_time_;
+    mutable double expand_time_;
     mutable size_t root_height_;
     mutable bool random_decision_;
 
-    RolloutIW(ALEInterface &sim,
+    RolloutIW(Environment &sim,
               size_t frameskip,
-              bool use_minimal_action_set,
               size_t num_tracked_atoms,
-              int screen_features,
               int simulator_budget,
-              float time_budget,
+              double time_budget,
               bool novelty_subtables,
               bool random_actions,
               size_t max_rep,
-              float discount,
-              float alpha,
-              bool use_alpha_to_update_reward_for_death,
+              double discount,
               int nodes_threshold,
               size_t max_depth)
-      : SimPlanner(sim, frameskip, use_minimal_action_set, simulator_budget, num_tracked_atoms),
-        screen_features_(screen_features),
+      : SimPlanner<Environment>(sim, frameskip, simulator_budget, num_tracked_atoms),
         time_budget_(time_budget),
         novelty_subtables_(novelty_subtables),
         random_actions_(random_actions),
         max_rep_(max_rep),
         discount_(discount),
-        alpha_(alpha),
-        use_alpha_to_update_reward_for_death_(use_alpha_to_update_reward_for_death),
         nodes_threshold_(nodes_threshold),
         max_depth_(max_depth) {
     }
@@ -62,17 +53,13 @@ struct RolloutIW : SimPlanner {
 
     virtual std::string name() const {
         return std::string("rollout(")
-          + "frameskip=" + std::to_string(frameskip_)
-          + ",minimal-action-set=" + std::to_string(use_minimal_action_set_)
-          + ",features=" + std::to_string(screen_features_)
-          + ",simulator-budget=" + std::to_string(simulator_budget_)
-          + ",time-budget=" + std::to_string(time_budget_)
+          + "frameskip=" + std::to_string(this->frameskip_)
+          + ",simulator-budget=" + std::to_string(this->simulator_budget_)
+          + ",time-budget=" + std::to_string(this->time_budget_)
           + ",novelty-subtables=" + std::to_string(novelty_subtables_)
           + ",random-actions=" + std::to_string(random_actions_)
           + ",max-rep=" + std::to_string(max_rep_)
           + ",discount=" + std::to_string(discount_)
-          + ",alpha=" + std::to_string(alpha_)
-          + ",use-alpha-to-update-reward-for-death=" + std::to_string(use_alpha_to_update_reward_for_death_)
           + ",nodes-threshold=" + std::to_string(nodes_threshold_)
           + ",max-depth=" + std::to_string(max_depth_)
           + ")";
@@ -88,16 +75,15 @@ struct RolloutIW : SimPlanner {
         return num_expansions_;
     }
 
-    virtual Node* get_branch(ALEInterface &env,
-                             const std::vector<Action> &prefix,
-                             Node *root,
-                             float last_reward,
-                             std::deque<Action> &branch) const {
+    virtual Node<Environment>* get_branch(const std::vector<typename Environment::Action> &prefix,
+                                          Node<Environment> *root,
+                                          double last_reward,
+                                          std::deque<typename Environment::Action> &branch) {
         assert(!prefix.empty());
 
         Logger::Info << "**** rollout: get branch ****" << std::endl;
         Logger::Info << "prefix: sz=" << prefix.size() << ", actions=";
-        print_prefix(Logger::Info, prefix);
+        this->print_prefix(Logger::Info, prefix);
         Logger::Continuation(Logger::Info) << std::endl;
         Logger::Info << "input:"
                      << " #nodes=" << (root == nullptr ? "na" : std::to_string(root->num_nodes()))
@@ -107,18 +93,19 @@ struct RolloutIW : SimPlanner {
 
         // reset stats and start timer
         reset_stats();
-        float start_time = Utils::read_time_in_seconds();
+        double start_time = Utils::read_time_in_seconds();
 
         // novelty table and other vars
         std::map<int, std::vector<int> > novelty_table_map;
 
         // construct root node
-        assert((root == nullptr) || (root->action_ == prefix.back()));
+        assert((root == nullptr) || Environment::is_same(root->action_, prefix.back()));
         if( root == nullptr ) {
-            Node *root_parent = new Node(nullptr, PLAYER_A_NOOP, -1);
-            root_parent->state_ = new ALEState;
-            apply_prefix(sim_, initial_sim_state_, prefix, root_parent->state_);
-            root = new Node(root_parent, prefix.back(), 0);
+            Node<Environment> *root_parent = new Node<Environment>(nullptr, typename Environment::Action(), -1);
+            root_parent->observation_ = std::make_unique<typename Environment::Observation>();
+            this->apply_prefix(this->initial_sim_observation_, prefix, root_parent->observation_.get());
+            this->current_sim_observation_ = root_parent->observation_.get();
+            root = new Node<Environment>(root_parent, prefix.back(), 0);
         }
         assert(root->parent_ != nullptr);
         root->parent_->parent_ = nullptr;
@@ -126,19 +113,19 @@ struct RolloutIW : SimPlanner {
         // if root has some children, make sure it has all children
         if( root->num_children_ > 0 ) {
             assert(root->first_child_ != nullptr);
-            std::set<Action> root_actions;
-            for( Node *child = root->first_child_; child != nullptr; child = child->sibling_ )
+            std::set<typename Environment::Action, typename Environment::ActionComparator> root_actions;
+            for( Node<Environment> *child = root->first_child_; child != nullptr; child = child->sibling_ )
                 root_actions.insert(child->action_);
 
             // complete children
-            assert(root->num_children_ <= int(action_set_.size()));
-            if( root->num_children_ < int(action_set_.size()) ) {
-                for( size_t k = 0; k < action_set_.size(); ++k ) {
-                    if( root_actions.find(action_set_[k]) == root_actions.end() )
-                        root->expand(action_set_[k]);
+            assert(root->num_children_ <= int(this->action_set_.size()));
+            if( root->num_children_ < int(this->action_set_.size()) ) {
+                for( size_t k = 0; k < this->action_set_.size(); ++k ) {
+                    if( root_actions.find(this->action_set_[k]) == root_actions.end() )
+                        root->expand(this->action_set_[k]);
                 }
             }
-            assert(root->num_children_ == int(action_set_.size()));
+            assert(root->num_children_ == int(this->action_set_.size()));
         } else {
             // make sure this root node isn't marked as frame rep
             root->parent_->feature_atoms_.clear();
@@ -147,18 +134,18 @@ struct RolloutIW : SimPlanner {
         // normalize depths, reset rep counters, and recompute path rewards
         root->parent_->depth_ = -1;
         root->normalize_depth();
-        root->reset_frame_rep_counters(frameskip_);
+        root->reset_frame_rep_counters(this->frameskip_);
         root->recompute_path_rewards(root);
 
         // construct/extend lookahead tree
         if( int(root->num_nodes()) < nodes_threshold_ ) {
-            float elapsed_time = Utils::read_time_in_seconds() - start_time;
+            double elapsed_time = Utils::read_time_in_seconds() - start_time;
 
             // clear solved labels
             clear_solved_labels(root);
             root->parent_->solved_ = false;
             Logger::Debug << "";
-            while( !root->solved_ && (int(simulator_calls_) < simulator_budget_) && (elapsed_time < time_budget_) ) {
+            while( !root->solved_ && (int(this->simulator_calls_) < this->simulator_budget_) && (elapsed_time < this->time_budget_) ) {
                 Logger::Continuation(Logger::Debug) << '.' << std::flush;
                 rollout(prefix, root, novelty_table_map);
                 elapsed_time = Utils::read_time_in_seconds() - start_time;
@@ -169,9 +156,9 @@ struct RolloutIW : SimPlanner {
         // if nothing was expanded, return random actions (it can only happen with small time budget)
         if( root->num_children_ == 0 ) {
             assert(root->first_child_ == nullptr);
-            assert(time_budget_ != std::numeric_limits<float>::infinity());
+            assert(time_budget_ != std::numeric_limits<double>::infinity());
             random_decision_ = true;
-            branch.push_back(random_action());
+            branch.push_back(this->random_action());
         } else {
             assert(root->first_child_ != nullptr);
 
@@ -187,7 +174,7 @@ struct RolloutIW : SimPlanner {
                           << ", value=" << root->value_
                           << ", imm-reward=" << root->reward_
                           << ", children=[";
-            for( Node *child = root->first_child_; child != nullptr; child = child->sibling_ )
+            for( Node<Environment> *child = root->first_child_; child != nullptr; child = child->sibling_ )
                 Logger::Continuation(Logger::Debug) << child->qvalue(discount_) << ":" << child->action_ << " ";
             Logger::Continuation(Logger::Debug) << "]" << Logger::normal() << std::endl;
 
@@ -197,7 +184,7 @@ struct RolloutIW : SimPlanner {
             } else {
                 if( random_actions_ ) {
                     random_decision_ = true;
-                    branch.push_back(random_zero_value_action(root, discount_));
+                    branch.push_back(this->random_zero_value_action(root, discount_));
                 } else {
                     root->longest_zero_value_branch(discount_, branch);
                     assert(!branch.empty());
@@ -205,7 +192,7 @@ struct RolloutIW : SimPlanner {
             }
 
             // make sure states along branch exist (only needed when doing partial caching)
-            generate_states_along_branch(root, branch, screen_features_, alpha_, use_alpha_to_update_reward_for_death_);
+            this->generate_states_along_branch(root, branch);
 
             // print branch
             assert(!branch.empty());
@@ -225,7 +212,7 @@ struct RolloutIW : SimPlanner {
         return root;
     }
 
-    void rollout(const std::vector<Action> &prefix, Node *root, std::map<int, std::vector<int> > &novelty_table_map) const {
+    void rollout(const std::vector<typename Environment::Action> &prefix, Node<Environment> *root, std::map<int, std::vector<int> > &novelty_table_map) {
         ++num_rollouts_;
 
         // apply prefix
@@ -233,10 +220,10 @@ struct RolloutIW : SimPlanner {
 
         // update root info
         if( root->is_info_valid_ != 2 )
-            update_info(root, screen_features_, alpha_, use_alpha_to_update_reward_for_death_);
+            this->update_info(root);
 
         // perform rollout
-        Node *node = root;
+        Node<Environment> *node = root;
         while( !node->solved_ ) {
             assert(node->is_info_valid_ == 2);
 
@@ -249,7 +236,7 @@ struct RolloutIW : SimPlanner {
 
             // update info
             if( node->is_info_valid_ != 2 )
-                update_info(node, screen_features_, alpha_, use_alpha_to_update_reward_for_death_);
+                this->update_info(node);
 
             // report non-zero rewards
             if( node->reward_ > 0 ) {
@@ -281,8 +268,8 @@ struct RolloutIW : SimPlanner {
             }
 
             // calculate novelty
-            std::vector<int> &novelty_table = get_novelty_table(node, novelty_table_map, novelty_subtables_);
-            int atom = get_novel_atom(node->depth_, node->feature_atoms_, novelty_table);
+            std::vector<int> &novelty_table = this->get_novelty_table(node, novelty_table_map, novelty_subtables_);
+            int atom = this->get_novel_atom(node->depth_, node->feature_atoms_, novelty_table);
             assert((atom >= 0) && (atom < int(novelty_table.size())));
 
             // five cases
@@ -303,7 +290,7 @@ struct RolloutIW : SimPlanner {
                 if( !node->visited_ ) {
                     ++num_cases_[0];
                     node->visited_ = true;
-                    node->num_novel_features_ = update_novelty_table(node->depth_, node->feature_atoms_, novelty_table);
+                    node->num_novel_features_ = this->update_novelty_table(node->depth_, node->feature_atoms_, novelty_table);
                     //logos_ << Utils::green() << "n" << Utils::normal() << std::flush;
                 }
                 continue;
@@ -317,7 +304,7 @@ struct RolloutIW : SimPlanner {
             } else if( node->visited_ && (novelty_table[atom] < node->depth_) ) { // not(novel) and visited => PRUNE
                 ++num_cases_[2];
                 //node->remove_children();
-                node->reward_ = -std::numeric_limits<float>::infinity();
+                node->reward_ = -std::numeric_limits<double>::infinity();
                 Logger::Continuation(Logger::Debug) << "-" << std::flush;
                 node->solve_and_backpropagate_label();
                 //logos_ << "X" << node->depth_ << std::flush;
@@ -331,24 +318,24 @@ struct RolloutIW : SimPlanner {
         }
     }
 
-    void expand_if_necessary(Node *node) const {
+    void expand_if_necessary(Node<Environment> *node) const {
         if( node->num_children_ == 0 ) {
             assert(node->first_child_ == nullptr);
             if( node->frame_rep_ == 0 ) {
                 ++num_expansions_;
-                float start_time = Utils::read_time_in_seconds();
-                node->expand(action_set_);
+                double start_time = Utils::read_time_in_seconds();
+                node->expand(this->action_set_);
                 expand_time_ += Utils::read_time_in_seconds() - start_time;
             } else {
-                assert((node->parent_ != nullptr) && (screen_features_ > 0));
+                assert(node->parent_ != nullptr);
                 node->expand(node->action_);
             }
             assert((node->num_children_ > 0) && (node->first_child_ != nullptr));
         }
     }
 
-    Node* pick_unsolved_child(const Node *node) const {
-        Node *selected = nullptr;
+    Node<Environment>* pick_unsolved_child(const Node<Environment> *node) const {
+        Node<Environment> *selected = nullptr;
 
         // decide to pick among all unsolved children or among those
         // with biggest number of novel features
@@ -357,7 +344,7 @@ struct RolloutIW : SimPlanner {
         // select unsolved child
         size_t num_candidates = 0;
         int novel_features_threshold = std::numeric_limits<int>::min();;
-        for( Node *child = node->first_child_; child != nullptr; child = child->sibling_ ) {
+        for( Node<Environment> *child = node->first_child_; child != nullptr; child = child->sibling_ ) {
             if( !child->solved_ && (child->num_novel_features_ >= novel_features_threshold) ) {
                 if( filter_unsolved_children && (child->num_novel_features_ > novel_features_threshold) ) {
                     novel_features_threshold = child->num_novel_features_;
@@ -368,7 +355,7 @@ struct RolloutIW : SimPlanner {
         }
         assert(num_candidates > 0);
         size_t index = lrand48() % num_candidates;
-        for( Node *child = node->first_child_; child != nullptr; child = child->sibling_ ) {
+        for( Node<Environment> *child = node->first_child_; child != nullptr; child = child->sibling_ ) {
             if( !child->solved_ && (child->num_novel_features_ >= novel_features_threshold) ) {
                 if( index == 0 ) {
                     selected = child;
@@ -382,14 +369,14 @@ struct RolloutIW : SimPlanner {
         return selected;
     }
 
-    void clear_solved_labels(Node *node) const {
+    void clear_solved_labels(Node<Environment> *node) const {
         node->solved_ = false;
-        for( Node *child = node->first_child_; child != nullptr; child = child->sibling_ )
+        for( Node<Environment> *child = node->first_child_; child != nullptr; child = child->sibling_ )
             clear_solved_labels(child);
     }
 
     void reset_stats() const {
-        SimPlanner::reset_stats();
+        SimPlanner<Environment>::reset_stats();
         num_rollouts_ = 0;
         num_expansions_ = 0;
         num_cases_[0] = 0;
@@ -402,13 +389,13 @@ struct RolloutIW : SimPlanner {
         random_decision_ = false;
     }
 
-    void print_stats(Logger::mode_t logger_mode, const Node &root, const std::map<int, std::vector<int> > &novelty_table_map) const {
+    void print_stats(Logger::mode_t logger_mode, const Node<Environment> &root, const std::map<int, std::vector<int> > &novelty_table_map) const {
         logger_mode << "decision-stats:"
                     << " #rollouts=" << num_rollouts_
                     << " #entries=[";
 
         for( std::map<int, std::vector<int> >::const_iterator it = novelty_table_map.begin(); it != novelty_table_map.end(); ++it )
-            Logger::Continuation(logger_mode) << it->first << ":" << num_entries(it->second) << "/" << it->second.size() << ",";
+            Logger::Continuation(logger_mode) << it->first << ":" << this->num_entries(it->second) << "/" << it->second.size() << ",";
 
         Logger::Continuation(logger_mode)
           << "]"
@@ -416,23 +403,23 @@ struct RolloutIW : SimPlanner {
           << " #tips=" << root.num_tip_nodes()
           << " height=[" << root.height_ << ":";
 
-        for( Node *child = root.first_child_; child != nullptr; child = child->sibling_ )
+        for( Node<Environment> *child = root.first_child_; child != nullptr; child = child->sibling_ )
             Logger::Continuation(logger_mode) << child->height_ << ",";
 
         Logger::Continuation(logger_mode)
           << "]"
           << " #expansions=" << num_expansions_
           << " #cases=[" << num_cases_[0] << "," << num_cases_[1] << "," << num_cases_[2] << "," << num_cases_[3] << "]"
-          << " #sim=" << simulator_calls_
+          << " #sim=" << this->simulator_calls_
           << " total-time=" << total_time_
-          << " simulator-time=" << sim_time_
-          << " reset-time=" << sim_reset_time_
-          << " get/set-state-time=" << sim_get_set_state_time_
+          << " simulator-time=" << this->sim_time_
+          << " reset-time=" << this->sim_reset_time_
+          << " get/set-state-time=" << this->sim_get_set_state_time_
           << " expand-time=" << expand_time_
-          << " update-novelty-time=" << update_novelty_time_
-          << " get-atoms-calls=" << get_atoms_calls_
-          << " get-atoms-time=" << get_atoms_time_
-          << " novel-atom-time=" << novel_atom_time_
+          << " update-novelty-time=" << this->update_novelty_time_
+          << " get-atoms-calls=" << this->get_atoms_calls_
+          << " get-atoms-time=" << this->get_atoms_time_
+          << " novel-atom-time=" << this->novel_atom_time_
           << std::endl;
     }
 };

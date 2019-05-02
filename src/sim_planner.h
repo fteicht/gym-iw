@@ -9,54 +9,47 @@
 #include <map>
 #include <string>
 #include <vector>
+#include <memory>
 
 #include "planner.h"
 #include "node.h"
-#include "screen.h"
 #include "logger.h"
 #include "utils.h"
 
-struct SimPlanner : Planner {
-    ALEInterface &sim_;
+template <typename Environment>
+struct SimPlanner : Planner<Environment> {
+    Environment &sim_;
 
     const size_t frameskip_;
-    const bool use_minimal_action_set_;
     const int simulator_budget_;
     const size_t num_tracked_atoms_;
 
     mutable size_t simulator_calls_;
-    mutable float sim_time_;
-    mutable float sim_reset_time_;
-    mutable float sim_get_set_state_time_;
+    mutable double sim_time_;
+    mutable double sim_reset_time_;
+    mutable double sim_get_set_state_time_;
 
     mutable size_t get_atoms_calls_;
-    mutable float get_atoms_time_;
-    mutable float novel_atom_time_;
-    mutable float update_novelty_time_;
+    mutable double get_atoms_time_;
+    mutable double novel_atom_time_;
+    mutable double update_novelty_time_;
 
-    ALEState initial_sim_state_;
-    ActionVect action_set_;
+    typename Environment::Observation initial_sim_observation_;
+    std::vector<typename Environment::Action> action_set_;
+    const typename Environment::Observation* current_sim_observation_;
 
-    SimPlanner(ALEInterface &sim,
+    SimPlanner(Environment &sim,
                size_t frameskip,
-               bool use_minimal_action_set,
                int simulator_budget,
                size_t num_tracked_atoms)
-      : Planner(),
+      : Planner<Environment>(),
         sim_(sim),
         frameskip_(frameskip),
-        use_minimal_action_set_(use_minimal_action_set),
         simulator_budget_(simulator_budget),
         num_tracked_atoms_(num_tracked_atoms) {
-        //static_assert(std::numeric_limits<float>::is_iec559, "IEEE 754 required");
-        assert(sim_.getInt("frame_skip") == int(frameskip_));
-        if( use_minimal_action_set_ )
-            action_set_ = sim_.getMinimalActionSet();
-        else
-            action_set_ = sim_.getLegalActionSet();
-        assert(sim_.getInt("frame_skip") == int(frameskip_));
-        reset_game(sim_);
-        get_state(sim_, initial_sim_state_);
+        //static_assert(std::numeric_limits<double>::is_iec559, "IEEE 754 required");
+        sim.enumerate_actions([this](const typename Environment::Action& action)->void {action_set_.push_back(action);});
+        reset_env();
     }
     virtual ~SimPlanner() { }
 
@@ -71,21 +64,21 @@ struct SimPlanner : Planner {
         novel_atom_time_ = 0;
     }
 
-    virtual float simulator_time() const {
+    virtual double simulator_time() const {
         return sim_time_ + sim_reset_time_ + sim_get_set_state_time_;
     }
     virtual size_t simulator_calls() const {
         return simulator_calls_;
     }
-    virtual Action random_action() const {
+    virtual typename Environment::Action random_action() const {
         return action_set_[lrand48() % action_set_.size()];
     }
 
-    Action random_zero_value_action(const Node *root, float discount) const {
+    typename Environment::Action random_zero_value_action(const Node<Environment> *root, double discount) const {
         assert(root != 0);
         assert((root->num_children_ > 0) && (root->first_child_ != nullptr));
-        std::vector<Action> zero_value_actions;
-        for( Node *child = root->first_child_; child != nullptr; child = child->sibling_ ) {
+        std::vector<typename Environment::Action> zero_value_actions;
+        for( Node<Environment> *child = root->first_child_; child != nullptr; child = child->sibling_ ) {
             if( child->qvalue(discount) == 0 )
                 zero_value_actions.push_back(child->action_);
         }
@@ -93,80 +86,58 @@ struct SimPlanner : Planner {
         return zero_value_actions[lrand48() % zero_value_actions.size()];
     }
 
-    float call_simulator(ALEInterface &ale, Action action) const {
+    void call_simulator(const typename Environment::Action& action, typename Environment::Observation& observation, double& reward, bool& termination) {
         ++simulator_calls_;
-        float start_time = Utils::read_time_in_seconds();
-        float reward = ale.act(action);
-        assert(reward != -std::numeric_limits<float>::infinity());
+        double start_time = Utils::read_time_in_seconds();
+        observation = sim_.step(action, reward, termination);
+        current_sim_observation_ = &observation;
+        assert(reward != -std::numeric_limits<double>::infinity());
         sim_time_ += Utils::read_time_in_seconds() - start_time;
-        return reward;
     }
 
-    void reset_game(ALEInterface &ale) const {
-        float start_time = Utils::read_time_in_seconds();
-        ale.reset_game();
+    void reset_env() {
+        double start_time = Utils::read_time_in_seconds();
+        initial_sim_observation_ = sim_.reset_env();
+        current_sim_observation_ = &initial_sim_observation_;
         sim_reset_time_ += Utils::read_time_in_seconds() - start_time;
     }
-    void get_state(ALEInterface &ale, ALEState &ale_state) const {
-        float start_time = Utils::read_time_in_seconds();
-        ale_state = ale.cloneState();
-        sim_get_set_state_time_ += Utils::read_time_in_seconds() - start_time;
-    }
-    void set_state(ALEInterface &ale, const ALEState &ale_state) const {
-        float start_time = Utils::read_time_in_seconds();
-        ale.restoreState(ale_state);
+
+    void switch_simulation_state(const typename Environment::Observation &observation) {
+        double start_time = Utils::read_time_in_seconds();
+        sim_.save_observation(*current_sim_observation_);
+        sim_.restore_observation(observation);
+        current_sim_observation_ = &observation;
         sim_get_set_state_time_ += Utils::read_time_in_seconds() - start_time;
     }
 
-    int get_lives(ALEInterface &ale) const {
-        return ale.lives();
-    }
-    bool terminal_state(ALEInterface &ale) const {
-        return ale.game_over();
-    }
-
-    const ALERAM& get_ram(ALEInterface &ale) const {
-        return ale.getRAM();
-    }
-    void get_ram(ALEInterface &ale, std::string &ram_str) const {
-        ram_str = std::string(256, '0');
-        const ALERAM &ale_ram = get_ram(ale);
-        for( size_t k = 0; k < 128; ++k ) {
-            byte_t byte = ale_ram.get(k);
-            ram_str[2 * k] = "01234567890abcdef"[byte >> 4];
-            ram_str[2 * k + 1] = "01234567890abcdef"[byte & 0xF];
-        }
-    }
+    // bool terminal_state() const {
+    //     return sim_.is_terminal();
+    // }
 
     // update info for node
-    void update_info(Node *node, int screen_features, float alpha, bool use_alpha_to_update_reward_for_death) const {
+    void update_info(Node<Environment> *node) {
         assert(node->is_info_valid_ != 2);
-        assert(node->state_ == nullptr);
+        assert(node->observation_ == nullptr);
         assert(node->parent_ != nullptr);
-        assert((node->parent_->is_info_valid_ == 1) || (node->parent_->state_ != nullptr));
-        if( node->parent_->state_ == nullptr ) {
+        assert((node->parent_->is_info_valid_ == 1) || (node->parent_->observation_ != nullptr));
+        if( node->parent_->observation_ == nullptr ) {
             // do recursion on parent
-            update_info(node->parent_, screen_features, alpha, use_alpha_to_update_reward_for_death);
+            update_info(node->parent_);
         }
-        assert(node->parent_->state_ != nullptr);
-        set_state(sim_, *node->parent_->state_);
-        float reward = call_simulator(sim_, node->action_);
-        assert(reward != std::numeric_limits<float>::infinity());
-        assert(reward != -std::numeric_limits<float>::infinity());
-        node->state_ = new ALEState;
-        get_state(sim_, *node->state_);
+        assert(node->parent_->observation_ != nullptr);
+        if (current_sim_observation_ != node->parent_->observation_.get()) { // need for cloning/restoring the simulation environment due to backtrack
+            switch_simulation_state(*(node->parent_->observation_));
+        }
+        double reward;
+        bool termination;
+        call_simulator(node->action_, *(node->observation_), reward, termination);
+        assert(reward != std::numeric_limits<double>::infinity());
+        assert(reward != -std::numeric_limits<double>::infinity());
+        node->observation_ = std::make_unique<typename Environment::Observation>();
         if( node->is_info_valid_ == 0 ) {
             node->reward_ = reward;
-            node->terminal_ = terminal_state(sim_);
-            if( node->reward_ < 0 ) node->reward_ *= alpha;
-            get_atoms(node, screen_features);
-            node->ale_lives_ = get_lives(sim_);
-            if( use_alpha_to_update_reward_for_death && (node->parent_ != nullptr) && (node->parent_->ale_lives_ != -1) ) {
-                if( node->ale_lives_ < node->parent_->ale_lives_ ) {
-                    node->reward_ = -10 * alpha;
-                    //logos_ << "L" << std::flush;
-                }
-            }
+            node->terminal_ = termination;
+            get_atoms(node);
             node->path_reward_ = node->parent_ == nullptr ? 0 : node->parent_->path_reward_;
             node->path_reward_ += node->reward_;
         }
@@ -174,39 +145,14 @@ struct SimPlanner : Planner {
     }
 
     // get atoms from ram or screen
-    void get_atoms(const Node *node, int screen_features) const {
+    void get_atoms(const Node<Environment> *node) const {
         assert(node->feature_atoms_.empty());
         ++get_atoms_calls_;
-        if( screen_features == 0 ) { // RAM mode
-            get_atoms_from_ram(node);
-        } else {
-            get_atoms_from_screen(node, screen_features);
-            if( (node->parent_ != nullptr) && (node->parent_->feature_atoms_ == node->feature_atoms_) ) {
-                node->frame_rep_ = node->parent_->frame_rep_ + frameskip_;
-                assert((node->num_children_ == 0) && (node->first_child_ == nullptr));
-            }
-        }
-        assert((node->frame_rep_ == 0) || (screen_features > 0));
-    }
-    void get_atoms_from_ram(const Node *node) const {
-        assert(node->feature_atoms_.empty());
-        node->feature_atoms_ = std::vector<int>(128, 0);
-        float start_time = Utils::read_time_in_seconds();
-        const ALERAM &ram = get_ram(sim_);
-        for( size_t k = 0; k < 128; ++k ) {
-            node->feature_atoms_[k] = (k << 8) + ram.get(k);
-            assert((k == 0) || (node->feature_atoms_[k] > node->feature_atoms_[k-1]));
-        }
-        get_atoms_time_ += Utils::read_time_in_seconds() - start_time;
-    }
-    void get_atoms_from_screen(const Node *node, int screen_features) const {
-        assert(node->feature_atoms_.empty());
-        float start_time = Utils::read_time_in_seconds();
-        if( (screen_features < 3) || (node->parent_ == nullptr) ) {
-            MyALEScreen screen(sim_, screen_features, &node->feature_atoms_);
-        } else {
-            assert((screen_features == 3) && (node->parent_ != nullptr));
-            MyALEScreen screen(sim_, screen_features, &node->feature_atoms_, &node->parent_->feature_atoms_);
+        double start_time = Utils::read_time_in_seconds();
+        sim_.convert_observation_to_feature_atoms(*(node->observation_), node->feature_atoms_);
+        if( (node->parent_ != nullptr) && (node->parent_->feature_atoms_ == node->feature_atoms_) ) {
+            node->frame_rep_ = node->parent_->frame_rep_ + frameskip_;
+            assert((node->num_children_ == 0) && (node->first_child_ == nullptr));
         }
         get_atoms_time_ += Utils::read_time_in_seconds() - start_time;
     }
@@ -215,7 +161,7 @@ struct SimPlanner : Planner {
     // features have been seen. Best depth is initialized to max.int. Novelty table associated
     // to node is a unique simple table if subtables is disabled. Otherwise, there is one table
     // for each different logscore. The table for a node is the table for its logscore.
-    int logscore(float path_reward) const {
+    int logscore(double path_reward) const {
         if( path_reward <= 0 ) {
             return 0;
         } else {
@@ -223,11 +169,11 @@ struct SimPlanner : Planner {
             return path_reward < 1 ? logr : 1 + logr;
         }
     }
-    int get_index_for_novelty_table(const Node *node, bool use_novelty_subtables) const {
+    int get_index_for_novelty_table(const Node<Environment> *node, bool use_novelty_subtables) const {
         return !use_novelty_subtables ? 0 : logscore(node->path_reward_);
     }
 
-    std::vector<int>& get_novelty_table(const Node *node, std::map<int, std::vector<int> > &novelty_table_map, bool use_novelty_subtables) const {
+    std::vector<int>& get_novelty_table(const Node<Environment> *node, std::map<int, std::vector<int> > &novelty_table_map, bool use_novelty_subtables) const {
         int index = get_index_for_novelty_table(node, use_novelty_subtables);
         std::map<int, std::vector<int> >::iterator it = novelty_table_map.find(index);
         if( it == novelty_table_map.end() ) {
@@ -241,7 +187,7 @@ struct SimPlanner : Planner {
     }
 
     size_t update_novelty_table(size_t depth, const std::vector<int> &feature_atoms, std::vector<int> &novelty_table) const {
-        float start_time = Utils::read_time_in_seconds();
+        double start_time = Utils::read_time_in_seconds();
         size_t first_index = 0;
         size_t number_updated_entries = 0;
         for( size_t k = first_index; k < feature_atoms.size(); ++k ) {
@@ -256,7 +202,7 @@ struct SimPlanner : Planner {
     }
 
     int get_novel_atom(size_t depth, const std::vector<int> &feature_atoms, const std::vector<int> &novelty_table) const {
-        float start_time = Utils::read_time_in_seconds();
+        double start_time = Utils::read_time_in_seconds();
         for( size_t k = 0; k < feature_atoms.size(); ++k ) {
             assert(feature_atoms[k] < int(novelty_table.size()));
             if( novelty_table[feature_atoms[k]] > int(depth) ) {
@@ -284,18 +230,25 @@ struct SimPlanner : Planner {
     }
 
     // prefix
-    void apply_prefix(ALEInterface &ale, const ALEState &initial_state, const std::vector<Action> &prefix, ALEState *last_state = nullptr) const {
+    void apply_prefix(const typename Environment::Observation &initial_observation,
+                      const std::vector<typename Environment::Action> &prefix, typename Environment::Observation *last_observation = nullptr) {
         assert(!prefix.empty());
-        reset_game(ale);
-        set_state(ale, initial_state);
+        reset_env();
+        typename Environment::Observation obs = initial_observation;
+        if (!Environment::is_same(initial_sim_observation_, initial_observation)) {
+            switch_simulation_state(initial_observation);
+        }
+        double reward;
+        bool termination;
         for( size_t k = 0; k < prefix.size(); ++k ) {
-            if( (last_state != nullptr) && (1 + k == prefix.size()) )
-                get_state(ale, *last_state);
-            call_simulator(ale, prefix[k]);
+            if( (last_observation != nullptr) && (1 + k == prefix.size()) ) {
+                *last_observation = obs;
+            }
+            call_simulator(prefix[k], obs, reward, termination);
         }
     }
 
-    void print_prefix(Logger::mode_t logger_mode, const std::vector<Action> &prefix) const {
+    void print_prefix(Logger::mode_t logger_mode, const std::vector<typename Environment::Action> &prefix) const {
         Logger::Continuation(logger_mode) << "[";
         for( size_t k = 0; k < prefix.size(); ++k )
             Logger::Continuation(logger_mode) << prefix[k] << ",";
@@ -303,20 +256,17 @@ struct SimPlanner : Planner {
     }
 
     // generate states along given branch
-    void generate_states_along_branch(Node *node,
-                                      const std::deque<Action> &branch,
-                                      int screen_features,
-                                      float alpha,
-                                      bool use_alpha_to_update_reward_for_death) const {
+    void generate_states_along_branch(Node<Environment> *node,
+                                      const std::deque<typename Environment::Action> &branch) {
         for( size_t pos = 0; pos < branch.size(); ++pos ) {
-            if( node->state_ == nullptr ) {
+            if( node->observation_ == nullptr ) {
                 assert(node->is_info_valid_ == 1);
-                update_info(node, screen_features, alpha, use_alpha_to_update_reward_for_death);
+                update_info(node);
             }
 
-            Node *selected = nullptr;
-            for( Node *child = node->first_child_; child != nullptr; child = child->sibling_ ) {
-                if( child->action_ == branch[pos] ) {
+            Node<Environment> *selected = nullptr;
+            for( Node<Environment> *child = node->first_child_; child != nullptr; child = child->sibling_ ) {
+                if( Environment::is_same(child->action_, branch[pos]) ) {
                     selected = child;
                     break;
                 }

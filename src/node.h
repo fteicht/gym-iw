@@ -8,26 +8,31 @@
 #include <iostream>
 #include <string>
 #include <vector>
-#include <ale_interface.hpp>
+#include <memory>
+#include <pybind11/pybind11.h>
 
-class Node;
-inline void remove_tree(Node *node);
+namespace py = pybind11;
 
+template <typename Environment> class Node;
+
+template <typename Environment>
+inline void remove_tree(Node<Environment> *node);
+
+template <typename Environment>
 class Node {
   public:
     bool visited_;                           // label
     bool solved_;                            // label
-    Action action_;                          // action mapping parent to this node
+    typename Environment::Action action_;    // action mapping parent to this node
     int depth_;                              // node's depth
     int height_;                             // node's height (calculated)
-    float reward_;                           // reward for this node
-    float path_reward_;                      // reward of full path leading to this node
+    double reward_;                           // reward for this node
+    double path_reward_;                      // reward of full path leading to this node
     int is_info_valid_;                      // is info valid? (0=no, 1=partial, 2=full)
     bool terminal_;                          // is node a terminal node?
-    float value_;                            // backed up value
-    int ale_lives_;                          // remaining ALE lives
+    double value_;                            // backed up value
 
-    mutable ALEState *state_;                // state for this node
+    mutable std::unique_ptr<typename Environment::Observation> observation_;         // observation for this node
     mutable std::vector<int> feature_atoms_; // features made true by this node
     mutable int num_novel_features_;         // number of features this node makes novel
     mutable int frame_rep_;                  // frame counter for number identical feature atoms through ancestors
@@ -38,7 +43,7 @@ class Node {
     Node *sibling_;                          // right sibling of this node
     Node *parent_;                           // pointer to parent node
 
-    Node(Node *parent, Action action, size_t depth)
+    Node(Node *parent, const typename Environment::Action& action, size_t depth)
       : visited_(false),
         solved_(false),
         action_(action),
@@ -49,8 +54,6 @@ class Node {
         is_info_valid_(0),
         terminal_(false),
         value_(0),
-        ale_lives_(-1),
-        state_(nullptr),
         num_novel_features_(0),
         frame_rep_(0),
         num_children_(0),
@@ -58,7 +61,7 @@ class Node {
         sibling_(nullptr),
         parent_(parent) {
     }
-    ~Node() { delete state_; }
+    ~Node() { }
 
     void remove_children() {
         while( first_child_ != nullptr ) {
@@ -68,13 +71,13 @@ class Node {
         }
     }
 
-    void expand(Action action) {
+    void expand(const typename Environment::Action& action) {
         Node *new_child = new Node(this, action, 1 + depth_);
         new_child->sibling_ = first_child_;
         first_child_ = new_child;
         ++num_children_;
     }
-    void expand(const ActionVect &actions, bool random_shuffle = true) {
+    void expand(const std::vector<typename Environment::Action> &actions, bool random_shuffle = true) {
         assert((num_children_ == 0) && (first_child_ == nullptr));
         for( size_t k = 0; k < actions.size(); ++k )
             expand(actions[k]);
@@ -82,17 +85,16 @@ class Node {
         assert(num_children_ == int(actions.size()));
     }
 
-    void clear_cached_states() {
+    void clear_cached_observations() {
         if( is_info_valid_ == 2 ) {
-            delete state_;
-            state_ = nullptr;
+            observation_ = std::shared_ptr<typename Environment::Observation>();
             is_info_valid_ = 1;
         }
         for( Node *child = first_child_; child != nullptr; child = child->sibling_ )
-            child->clear_cached_states();
+            child->clear_cached_observations();
     }
 
-    Node* advance(Action action) {
+    Node* advance(const typename Environment::Action& action) {
         assert((num_children_ > 0) && (first_child_ != nullptr));
         assert((parent_ == nullptr) || (parent_->parent_ == nullptr));
         if( parent_ != nullptr ) {
@@ -161,19 +163,19 @@ class Node {
         }
     }
 
-    float qvalue(float discount) const {
+    double qvalue(double discount) const {
         return reward_ + discount * value_;
     }
 
-    float backup_values_upward(float discount) { // NOT USED
+    double backup_values_upward(double discount) { // NOT USED
         assert((num_children_ == 0) || (is_info_valid_ != 0));
 
         value_ = 0;
         if( num_children_ > 0 ) {
             assert(first_child_ != nullptr);
-            float max_child_value = -std::numeric_limits<float>::infinity();
+            double max_child_value = -std::numeric_limits<double>::infinity();
             for( Node *child = first_child_; child != nullptr; child = child->sibling_ ) {
-                float child_value = child->qvalue(discount);
+                double child_value = child->qvalue(discount);
                 max_child_value = std::max(max_child_value, child_value);
             }
             value_ = max_child_value;
@@ -185,15 +187,15 @@ class Node {
             return parent_->backup_values_upward(discount);
     }
 
-    float backup_values(float discount) {
+    double backup_values(double discount) {
         assert((num_children_ == 0) || (is_info_valid_ != 0));
         value_ = 0;
         if( num_children_ > 0 ) {
             assert(first_child_ != nullptr);
-            float max_child_value = -std::numeric_limits<float>::infinity();
+            double max_child_value = -std::numeric_limits<double>::infinity();
             for( Node *child = first_child_; child != nullptr; child = child->sibling_ ) {
                 child->backup_values(discount);
-                float child_value = child->qvalue(discount);
+                double child_value = child->qvalue(discount);
                 max_child_value = std::max(max_child_value, child_value);
             }
             value_ = max_child_value;
@@ -201,16 +203,16 @@ class Node {
         return value_;
     }
 
-    float backup_values_along_branch(const std::deque<Action> &branch, float discount, size_t index = 0) { // NOT USED
+    double backup_values_along_branch(const std::deque<typename Environment::Action> &branch, double discount, size_t index = 0) { // NOT USED
         //assert(is_info_valid_ && !children_.empty()); // tree now grows past branch
         if( index == branch.size() ) {
             backup_values(discount);
             return value_;
         } else {
             assert(index < branch.size());
-            float value_along_branch = 0;
-            const Action &action = branch[index];
-            float max_child_value = -std::numeric_limits<float>::infinity();
+            double value_along_branch = 0;
+            const typename Environment::Action &action = branch[index];
+            double max_child_value = -std::numeric_limits<double>::infinity();
             for( Node *child = first_child_; child != nullptr; child = child->sibling_ ) {
                 if( child->action_ == action )
                     value_along_branch = child->backup_values_along_branch(branch, discount, ++index);
@@ -221,7 +223,7 @@ class Node {
         }
     }
 
-    const Node *best_tip_node(float discount) const { // NOT USED
+    const Node *best_tip_node(double discount) const { // NOT USED
         if( num_children_ == 0 ) {
             return this;
         } else {
@@ -242,7 +244,7 @@ class Node {
         }
     }
 
-    void best_branch(std::deque<Action> &branch, float discount) const {
+    void best_branch(std::deque<typename Environment::Action> &branch, double discount) const {
         if( num_children_ > 0 ) {
             assert(first_child_ != nullptr);
             size_t num_best_children = 0;
@@ -263,7 +265,7 @@ class Node {
         }
     }
 
-    void longest_zero_value_branch(float discount, std::deque<Action> &branch) const {
+    void longest_zero_value_branch(double discount, std::deque<typename Environment::Action> &branch) const {
         assert(value_ == 0);
         if( num_children_ > 0 ) {
             assert(first_child_ != nullptr);
@@ -325,10 +327,10 @@ class Node {
         return height_;
     }
 
-    void print_branch(std::ostream &os, const std::deque<Action> &branch, size_t index = 0) const {
+    void print_branch(std::ostream &os, const std::deque<typename Environment::Action> &branch, size_t index = 0) const {
         print(os);
         if( index < branch.size() ) {
-            Action action = branch[index];
+            typename Environment::Action action = branch[index];
             bool child_found = false;
             for( Node *child = first_child_; child != nullptr; child = child->sibling_ ) {
                 if( child->action_ == action ) {
@@ -345,7 +347,6 @@ class Node {
         os << "node:"
            << " valid=" << is_info_valid_
            << ", solved=" << solved_
-           << ", lives=" << ale_lives_
            << ", value=" << value_
            << ", reward=" << reward_
            << ", path-reward=" << path_reward_
@@ -365,8 +366,9 @@ class Node {
     }
 };
 
-inline void remove_tree(Node *node) {
-    for( Node *child = node->first_child_; child != nullptr; child = child->sibling_ )
+template <typename Environment>
+inline void remove_tree(Node<Environment> *node) {
+    for( Node<Environment> *child = node->first_child_; child != nullptr; child = child->sibling_ )
         remove_tree(child);
     delete node;
 }
