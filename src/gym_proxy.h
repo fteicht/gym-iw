@@ -25,7 +25,10 @@ public :
              double discount = 1.00,
              int nodes_threshold = 50000,
              bool break_ties_using_rewards = false,
-             size_t max_depth = 1500)
+             size_t max_depth = 1500,
+             int debug_threshold = 0,
+             int random_seed = 0,
+             std::string logger_mode = "info")
     : gym_env_(gym_env), space_relative_precision_(space_relative_precision) {
         if (!py::hasattr(gym_env, "observation_space") || !py::hasattr(gym_env, "action_space")) {
             py::print("ERROR: Gym environment should have 'observation_space' and 'action_space' attributes");
@@ -42,11 +45,13 @@ public :
             if (planner == "bfs-iw") {
                 planner_ = std::make_unique<BfsIW<GymProxy>>(*this, frameskip, observation_space_->get_number_of_feature_atoms(), simulator_budget,
                                                              time_budget, novelty_subtables, random_actions, max_rep,
-                                                             discount, nodes_threshold, break_ties_using_rewards);
+                                                             discount, nodes_threshold, break_ties_using_rewards,
+                                                             debug_threshold, random_seed, logger_mode);
             } else if (planner == "rollout-iw") {
                 planner_ = std::make_unique<RolloutIW<GymProxy>>(*this, frameskip, observation_space_->get_number_of_feature_atoms(), simulator_budget,
                                                                  time_budget, novelty_subtables, random_actions, max_rep,
-                                                                 discount, nodes_threshold, max_depth);
+                                                                 discount, nodes_threshold, max_depth,
+                                                                 debug_threshold, random_seed, logger_mode);
             } else {
                 py::print("ERROR: unsupported planner '" + planner + "'");
             }
@@ -109,6 +114,21 @@ public :
         });
     }
 
+    // export to python
+    void play(int episodes = 1,
+              int initial_random_noops = 30,
+              int lookahead_caching = 2,
+              double prefix_length_to_execute = 0.0,
+              bool execute_single_action = false,
+              int max_execution_length_in_frames = 18000) {
+        try {
+            planner_->play(episodes, initial_random_noops, lookahead_caching,
+                           prefix_length_to_execute, execute_single_action, max_execution_length_in_frames);
+        } catch (const std::exception& e) {
+            py::print("Python binding error: " + std::string(e.what()));
+        }
+    }
+
     // import from python
     py::object reset_env() {
         try {
@@ -116,7 +136,11 @@ public :
                 py::print("ERROR: Gym env without 'reset' method");
                 return py::none();
             } else {
-                return gym_env_.attr("reset")();
+                py::object observation = gym_env_.attr("reset")();
+                saved_environments_.clear();
+                saved_environments_.insert(std::make_pair(observation, gym_env_));
+                last_saved_observation_ = observation;
+                return observation;
             }
         } catch (const std::exception& e) {
             py::print("Python binding error: " + std::string(e.what()));
@@ -188,8 +212,11 @@ public :
 
     void save_observation(const py::object& observation) {
         try {
-            py::object copy = py::module::import("copy").attr("copy");
-            saved_environments_.emplace(std::make_pair(&observation, copy(gym_env_))); // observation belongs to a node that must not be deleted before saved_environments_!
+            if (saved_environments_.find(observation) == saved_environments_.end()) {
+                py::object copy = py::module::import("copy").attr("copy");
+                saved_environments_.emplace(std::make_pair(observation, copy(gym_env_))); // observation belongs to a node that must not be deleted before saved_environments_!
+                last_saved_observation_ = observation;
+            }
         } catch (const std::exception& e) {
             py::print("Python binding error: " + std::string(e.what()));
         }
@@ -197,25 +224,42 @@ public :
 
     void restore_observation(const py::object& observation) {
         try {
-            auto i = saved_environments_.find(&observation);
-            if (i == saved_environments_.end()) {
-                py::print("ERROR: no such observation to restore");
-                return;
+            if (!ObservationEqual()(observation, last_saved_observation_)) {
+                auto i = saved_environments_.find(observation);
+                if (i == saved_environments_.end()) {
+                    py::print("ERROR: no such observation to restore");
+                    return;
+                }
+                py::object copy = py::module::import("copy").attr("copy");
+                gym_env_ = copy(i->second);
+                last_saved_observation_ = observation;
             }
-            py::object copy = py::module::import("copy").attr("copy");
-            gym_env_ = copy(i->second);
         } catch (const std::exception& e) {
             py::print("Python binding error: " + std::string(e.what()));
         }
     }
 
-    static bool is_same(const py::object& a, const py::object& b) {
-        return a.is(b);
-    }
+    struct ActionEqual {
+        bool operator()(const py::object& a, const py::object& b) const {
+            return a.is(b); // actions share the same underlying python object pointers (since generated from the same action vector)
+        }
+    };
 
-    struct ActionComparator {
+    struct ActionLess {
         bool operator()(const py::object& a, const py::object& b) const {
             return a.ptr() < b.ptr(); // actions share the same underlying python object pointers (since generated from the same action vector)
+        }
+    };
+
+    struct ObservationEqual {
+        bool operator()(const py::object& a, const py::object& b) const {
+            return a.is(b);
+        }
+    };
+
+    struct ObservationLess {
+        bool operator()(const py::object& a, const py::object& b) const {
+            return a.ptr() < b.ptr();
         }
     };
 
@@ -224,6 +268,7 @@ private :
     double space_relative_precision_;
     std::unique_ptr<GymSpace> observation_space_;
     std::unique_ptr<GymSpace> action_space_;
-    std::unordered_map<const py::object*, py::object> saved_environments_; // used by BFS algorithm to backtrack to previously observed observations (saved in nodes) in GYM (no other way than copying the cloning the environment)
+    std::map<py::object, py::object, ObservationLess> saved_environments_; // used by BFS algorithm to backtrack to previously observed observations (saved in nodes) in GYM (no other way than copying the cloning the environment)
+    py::object last_saved_observation_;
     std::unique_ptr<SimPlanner<GymProxy>> planner_;
 };

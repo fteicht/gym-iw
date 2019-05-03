@@ -39,8 +39,11 @@ struct BfsIW : SimPlanner<Environment> {
           size_t max_rep,
           double discount,
           int nodes_threshold,
-          bool break_ties_using_rewards)
-      : SimPlanner<Environment>(sim, frameskip, simulator_budget, num_tracked_atoms),
+          bool break_ties_using_rewards,
+          int debug_threshold,
+          int random_seed,
+          std::string logger_mode)
+      : SimPlanner<Environment>(sim, frameskip, simulator_budget, num_tracked_atoms, debug_threshold, random_seed, logger_mode),
         time_budget_(time_budget),
         novelty_subtables_(novelty_subtables),
         random_actions_(random_actions),
@@ -63,6 +66,10 @@ struct BfsIW : SimPlanner<Environment> {
           + ",nodes-threshold=" + std::to_string(nodes_threshold_)
           + ",break-ties-using-rewards=" + std::to_string(break_ties_using_rewards_)
           + ")";
+    }
+
+    virtual std::string str() const {
+        return std::string("bfs-iw");
     }
 
     virtual bool random_decision() const {
@@ -99,12 +106,11 @@ struct BfsIW : SimPlanner<Environment> {
         std::map<int, std::vector<int> > novelty_table_map;
 
         // construct root node
-        assert((root == nullptr) || Environment::is_same(root->action_, prefix.back()));
+        assert((root == nullptr) || (typename Environment::ActionEqual()(root->action_, prefix.back())));
         if( root == nullptr ) {
             Node<Environment> *root_parent = new Node<Environment>(nullptr, typename Environment::Action(), -1);
             root_parent->observation_ = std::make_unique<typename Environment::Observation>();
             this->apply_prefix(this->initial_sim_observation_, prefix, root_parent->observation_.get());
-            this->current_sim_observation_ = root_parent->observation_.get();
             root = new Node<Environment>(root_parent, prefix.back(), 0);
         }
         assert(root->parent_ != nullptr);
@@ -113,7 +119,7 @@ struct BfsIW : SimPlanner<Environment> {
         // if root has some children, make sure it has all children
         if( root->num_children_ > 0 ) {
             assert(root->first_child_ != nullptr);
-            std::set<typename Environment::Action, typename Environment::ActionComparator> root_actions;
+            std::set<typename Environment::Action, typename Environment::ActionLess> root_actions;
             for( Node<Environment> *child = root->first_child_; child != nullptr; child = child->sibling_ )
                 root_actions.insert(child->action_);
 
@@ -139,7 +145,7 @@ struct BfsIW : SimPlanner<Environment> {
 
         // construct/extend lookahead tree
         if( int(root->num_nodes()) < nodes_threshold_ ) {
-            bfs(prefix, root, novelty_table_map);
+            bfs(root, novelty_table_map);
         }
 
         // if nothing was expanded, return random actions (it can only happen with small time budget)
@@ -212,7 +218,7 @@ struct BfsIW : SimPlanner<Environment> {
         }
     };
 
-    void bfs(const std::vector<typename Environment::Action> &prefix, Node<Environment> *root, std::map<int, std::vector<int> > &novelty_table_map) {
+    void bfs(Node<Environment> *root, std::map<int, std::vector<int> > &novelty_table_map) {
         // priority queue
         NodeComparator cmp(break_ties_using_rewards_);
         std::priority_queue<Node<Environment>*, std::vector<Node<Environment>*>, NodeComparator> q(cmp);
@@ -220,6 +226,11 @@ struct BfsIW : SimPlanner<Environment> {
         // add tip nodes to queue
         add_tip_nodes_to_queue(root, q);
         Logger::Info << "queue: sz=" << q.size() << std::endl;
+
+        // save current observation
+        assert(root->observation_ != nullptr);
+        typename Environment::Observation current_observation = *(root->observation_);
+        this->save_observation(current_observation);
 
         // explore in breadth-first manner
         double start_time = Utils::read_time_in_seconds();
@@ -234,7 +245,13 @@ struct BfsIW : SimPlanner<Environment> {
             assert((node->num_children_ == 0) && (node->first_child_ == nullptr));
             assert(node->visited_ || (node->is_info_valid_ != 2));
             if( node->is_info_valid_ != 2 ) {
+                assert(node->parent_->observation_ != nullptr);
+                if (!(typename Environment::ObservationEqual()(*(node->parent_->observation_), current_observation))) {
+                    this->save_observation(current_observation);
+                    this->restore_observation(*(node->parent_->observation_));
+                } 
                 this->update_info(node);
+                current_observation = *(node->observation_);
                 assert((node->num_children_ == 0) && (node->first_child_ == nullptr));
                 node->visited_ = true;
             }
@@ -345,6 +362,18 @@ struct BfsIW : SimPlanner<Environment> {
           << " get-atoms-time=" << this->get_atoms_time_
           << " novel-atom-time=" << this->novel_atom_time_
           << std::endl;
+    }
+
+    virtual void log_stats() const {
+        Logger::Stats
+        << " simulator-budget=" << this->simulator_budget_
+        << " time-budget=" << time_budget_
+        << " discount=" << discount_
+        << " max-rep=" << max_rep_
+        << " nodes-threshold=" << nodes_threshold_
+        << " novelty-subtables=" << novelty_subtables_
+        << " random-actions=" << random_actions_
+        << " break-ties-using-rewards=" << break_ties_using_rewards_;
     }
 };
 

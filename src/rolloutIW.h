@@ -39,8 +39,11 @@ struct RolloutIW : SimPlanner<Environment> {
               size_t max_rep,
               double discount,
               int nodes_threshold,
-              size_t max_depth)
-      : SimPlanner<Environment>(sim, frameskip, simulator_budget, num_tracked_atoms),
+              size_t max_depth,
+              int debug_threshold,
+              int random_seed,
+              std::string logger_mode)
+      : SimPlanner<Environment>(sim, frameskip, simulator_budget, num_tracked_atoms, debug_threshold, random_seed, logger_mode),
         time_budget_(time_budget),
         novelty_subtables_(novelty_subtables),
         random_actions_(random_actions),
@@ -63,6 +66,10 @@ struct RolloutIW : SimPlanner<Environment> {
           + ",nodes-threshold=" + std::to_string(nodes_threshold_)
           + ",max-depth=" + std::to_string(max_depth_)
           + ")";
+    }
+
+    virtual std::string str() const {
+        return std::string("rollout-iw");
     }
 
     virtual bool random_decision() const {
@@ -99,12 +106,11 @@ struct RolloutIW : SimPlanner<Environment> {
         std::map<int, std::vector<int> > novelty_table_map;
 
         // construct root node
-        assert((root == nullptr) || Environment::is_same(root->action_, prefix.back()));
+        assert((root == nullptr) || (typename Environment::ActionEqual()(root->action_, prefix.back())));
         if( root == nullptr ) {
             Node<Environment> *root_parent = new Node<Environment>(nullptr, typename Environment::Action(), -1);
             root_parent->observation_ = std::make_unique<typename Environment::Observation>();
             this->apply_prefix(this->initial_sim_observation_, prefix, root_parent->observation_.get());
-            this->current_sim_observation_ = root_parent->observation_.get();
             root = new Node<Environment>(root_parent, prefix.back(), 0);
         }
         assert(root->parent_ != nullptr);
@@ -113,7 +119,7 @@ struct RolloutIW : SimPlanner<Environment> {
         // if root has some children, make sure it has all children
         if( root->num_children_ > 0 ) {
             assert(root->first_child_ != nullptr);
-            std::set<typename Environment::Action, typename Environment::ActionComparator> root_actions;
+            std::set<typename Environment::Action, typename Environment::ActionLess> root_actions;
             for( Node<Environment> *child = root->first_child_; child != nullptr; child = child->sibling_ )
                 root_actions.insert(child->action_);
 
@@ -137,6 +143,12 @@ struct RolloutIW : SimPlanner<Environment> {
         root->reset_frame_rep_counters(this->frameskip_);
         root->recompute_path_rewards(root);
 
+        // Prepare rollout: save the environment since all rollouts will begin
+        // from the current observation
+        assert(root->observation_ != nullptr);
+        py::object saved_observation = *(root->observation_);
+        this->save_observation(saved_observation);
+
         // construct/extend lookahead tree
         if( int(root->num_nodes()) < nodes_threshold_ ) {
             double elapsed_time = Utils::read_time_in_seconds() - start_time;
@@ -147,7 +159,8 @@ struct RolloutIW : SimPlanner<Environment> {
             Logger::Debug << "";
             while( !root->solved_ && (int(this->simulator_calls_) < this->simulator_budget_) && (elapsed_time < this->time_budget_) ) {
                 Logger::Continuation(Logger::Debug) << '.' << std::flush;
-                rollout(prefix, root, novelty_table_map);
+                this->restore_observation(saved_observation);
+                rollout(root, novelty_table_map);
                 elapsed_time = Utils::read_time_in_seconds() - start_time;
             }
             Logger::Continuation(Logger::Debug) << std::endl;
@@ -212,11 +225,8 @@ struct RolloutIW : SimPlanner<Environment> {
         return root;
     }
 
-    void rollout(const std::vector<typename Environment::Action> &prefix, Node<Environment> *root, std::map<int, std::vector<int> > &novelty_table_map) {
+    void rollout(Node<Environment> *root, std::map<int, std::vector<int> > &novelty_table_map) {
         ++num_rollouts_;
-
-        // apply prefix
-        //apply_prefix(sim_, initial_sim_state_, prefix);
 
         // update root info
         if( root->is_info_valid_ != 2 )
@@ -421,6 +431,18 @@ struct RolloutIW : SimPlanner<Environment> {
           << " get-atoms-time=" << this->get_atoms_time_
           << " novel-atom-time=" << this->novel_atom_time_
           << std::endl;
+    }
+
+    virtual void log_stats() const {
+        Logger::Stats
+        << " simulator-budget=" << this->simulator_budget_
+        << " time-budget=" << time_budget_
+        << " discount=" << discount_
+        << " max-rep=" << max_rep_
+        << " nodes-threshold=" << nodes_threshold_
+        << " novelty-subtables=" << novelty_subtables_
+        << " random-actions=" << random_actions_
+        << " max-depth=" << max_depth_;
     }
 };
 

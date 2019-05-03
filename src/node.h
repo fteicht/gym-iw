@@ -87,7 +87,7 @@ class Node {
 
     void clear_cached_observations() {
         if( is_info_valid_ == 2 ) {
-            observation_ = std::shared_ptr<typename Environment::Observation>();
+            observation_.reset();
             is_info_valid_ = 1;
         }
         for( Node *child = first_child_; child != nullptr; child = child->sibling_ )
@@ -104,7 +104,7 @@ class Node {
 
         Node *selected = nullptr;
         for( Node *child = first_child_; child != nullptr; child = child->sibling_ ) {
-            if( child->action_ == action )
+            if( typename Environment::ActionEqual()(child->action_, action) )
                 selected = child;
             else
                 remove_tree(child);

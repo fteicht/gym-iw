@@ -18,9 +18,6 @@
 
 template <typename Environment>
 struct SimPlanner : Planner<Environment> {
-    Environment &sim_;
-
-    const size_t frameskip_;
     const int simulator_budget_;
     const size_t num_tracked_atoms_;
 
@@ -36,15 +33,15 @@ struct SimPlanner : Planner<Environment> {
 
     typename Environment::Observation initial_sim_observation_;
     std::vector<typename Environment::Action> action_set_;
-    const typename Environment::Observation* current_sim_observation_;
 
     SimPlanner(Environment &sim,
                size_t frameskip,
                int simulator_budget,
-               size_t num_tracked_atoms)
-      : Planner<Environment>(),
-        sim_(sim),
-        frameskip_(frameskip),
+               size_t num_tracked_atoms,
+               int debug_threshold,
+               int random_seed,
+               std::string logger_mode)
+      : Planner<Environment>(sim, frameskip, debug_threshold, random_seed, logger_mode),
         simulator_budget_(simulator_budget),
         num_tracked_atoms_(num_tracked_atoms) {
         //static_assert(std::numeric_limits<double>::is_iec559, "IEEE 754 required");
@@ -89,30 +86,28 @@ struct SimPlanner : Planner<Environment> {
     void call_simulator(const typename Environment::Action& action, typename Environment::Observation& observation, double& reward, bool& termination) {
         ++simulator_calls_;
         double start_time = Utils::read_time_in_seconds();
-        observation = sim_.step(action, reward, termination);
-        current_sim_observation_ = &observation;
+        observation = this->sim_.step(action, reward, termination);
         assert(reward != -std::numeric_limits<double>::infinity());
         sim_time_ += Utils::read_time_in_seconds() - start_time;
     }
 
     void reset_env() {
         double start_time = Utils::read_time_in_seconds();
-        initial_sim_observation_ = sim_.reset_env();
-        current_sim_observation_ = &initial_sim_observation_;
+        initial_sim_observation_ = this->sim_.reset_env();
         sim_reset_time_ += Utils::read_time_in_seconds() - start_time;
     }
 
-    void switch_simulation_state(const typename Environment::Observation &observation) {
+    void save_observation(const typename Environment::Observation &observation) {
         double start_time = Utils::read_time_in_seconds();
-        sim_.save_observation(*current_sim_observation_);
-        sim_.restore_observation(observation);
-        current_sim_observation_ = &observation;
+        this->sim_.save_observation(observation);
         sim_get_set_state_time_ += Utils::read_time_in_seconds() - start_time;
     }
 
-    // bool terminal_state() const {
-    //     return sim_.is_terminal();
-    // }
+    void restore_observation(const typename Environment::Observation &observation) {
+        double start_time = Utils::read_time_in_seconds();
+        this->sim_.restore_observation(observation);
+        sim_get_set_state_time_ += Utils::read_time_in_seconds() - start_time;
+    }
 
     // update info for node
     void update_info(Node<Environment> *node) {
@@ -125,15 +120,13 @@ struct SimPlanner : Planner<Environment> {
             update_info(node->parent_);
         }
         assert(node->parent_->observation_ != nullptr);
-        if (current_sim_observation_ != node->parent_->observation_.get()) { // need for cloning/restoring the simulation environment due to backtrack
-            switch_simulation_state(*(node->parent_->observation_));
-        }
         double reward;
         bool termination;
-        call_simulator(node->action_, *(node->observation_), reward, termination);
+        typename Environment::Observation observation;
+        call_simulator(node->action_, observation, reward, termination);
         assert(reward != std::numeric_limits<double>::infinity());
         assert(reward != -std::numeric_limits<double>::infinity());
-        node->observation_ = std::make_unique<typename Environment::Observation>();
+        node->observation_ = std::make_unique<typename Environment::Observation>(observation);
         if( node->is_info_valid_ == 0 ) {
             node->reward_ = reward;
             node->terminal_ = termination;
@@ -149,9 +142,9 @@ struct SimPlanner : Planner<Environment> {
         assert(node->feature_atoms_.empty());
         ++get_atoms_calls_;
         double start_time = Utils::read_time_in_seconds();
-        sim_.convert_observation_to_feature_atoms(*(node->observation_), node->feature_atoms_);
+        this->sim_.convert_observation_to_feature_atoms(*(node->observation_), node->feature_atoms_);
         if( (node->parent_ != nullptr) && (node->parent_->feature_atoms_ == node->feature_atoms_) ) {
-            node->frame_rep_ = node->parent_->frame_rep_ + frameskip_;
+            node->frame_rep_ = node->parent_->frame_rep_ + this->frameskip_;
             assert((node->num_children_ == 0) && (node->first_child_ == nullptr));
         }
         get_atoms_time_ += Utils::read_time_in_seconds() - start_time;
@@ -235,9 +228,6 @@ struct SimPlanner : Planner<Environment> {
         assert(!prefix.empty());
         reset_env();
         typename Environment::Observation obs = initial_observation;
-        if (!Environment::is_same(initial_sim_observation_, initial_observation)) {
-            switch_simulation_state(initial_observation);
-        }
         double reward;
         bool termination;
         for( size_t k = 0; k < prefix.size(); ++k ) {
@@ -266,7 +256,7 @@ struct SimPlanner : Planner<Environment> {
 
             Node<Environment> *selected = nullptr;
             for( Node<Environment> *child = node->first_child_; child != nullptr; child = child->sibling_ ) {
-                if( Environment::is_same(child->action_, branch[pos]) ) {
+                if( typename Environment::ActionEqual()(child->action_, branch[pos]) ) {
                     selected = child;
                     break;
                 }
