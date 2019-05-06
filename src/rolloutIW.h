@@ -145,8 +145,8 @@ struct RolloutIW : SimPlanner<Environment> {
 
         // Prepare rollout: save the environment since all rollouts will begin
         // from the current observation
-        assert(root->observation_ != nullptr);
-        py::object saved_observation = *(root->observation_);
+        assert(root->parent_->observation_ != nullptr);
+        py::object saved_observation = *(root->parent_->observation_);
         this->save_observation(saved_observation);
 
         // construct/extend lookahead tree

@@ -103,7 +103,9 @@ class Node {
         }
 
         Node *selected = nullptr;
-        for( Node *child = first_child_; child != nullptr; child = child->sibling_ ) {
+        Node *sibling = nullptr;
+        for( Node *child = first_child_; child != nullptr; child = sibling ) {
+            sibling = child->sibling_;
             if( typename Environment::ActionEqual()(child->action_, action) )
                 selected = child;
             else
@@ -368,8 +370,11 @@ class Node {
 
 template <typename Environment>
 inline void remove_tree(Node<Environment> *node) {
-    for( Node<Environment> *child = node->first_child_; child != nullptr; child = child->sibling_ )
+    Node<Environment> *sibling = nullptr;
+    for( Node<Environment> *child = node->first_child_; child != nullptr; child = sibling ) {
+        sibling = child->sibling_;
         remove_tree(child);
+    }
     delete node;
 }
 

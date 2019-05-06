@@ -6,7 +6,7 @@ namespace py = pybind11;
 PYBIND11_MODULE(gym_iw, giw) {
     py::class_<GymProxy> bfs_iw_agent(giw, "BfsIwAgent");
         bfs_iw_agent
-            .def(py::init<py::object&, const std::string&, const std::string&,
+            .def(py::init<const py::object&, const std::string&, const std::string&,
                  double, size_t, double, double, bool, bool, size_t, double,
                  int, bool, size_t, int, int, const std::string&>(),
                  py::arg("environment"),

@@ -502,7 +502,7 @@ py::object DiscreteSpace<GymSpace::ENCODING_VARIABLE_VECTOR>::convert_feature_at
 
 template <>
 void DiscreteSpace<GymSpace::ENCODING_BYTE_VECTOR>::enumerate(const std::function<void(const std::vector<int>&)>& f, std::vector<int>& feature_atoms) const {
-    for (unsigned int i = 0 ; i < n_ ; i++) {
+    for (std::int64_t i = 0 ; i < n_ ; i++) {
         unsigned char* byte_array = reinterpret_cast<unsigned char *>(&i);
         for (unsigned int j = 0 ; j < sizeof(std::int64_t) ; j++) {
             feature_atoms[feature_atom_vector_begin_ + j] = byte_array[j];

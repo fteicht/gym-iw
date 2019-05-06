@@ -14,7 +14,7 @@ public :
     typedef py::object Observation;
     typedef py::object Action;
     
-    GymProxy(py::object& gym_env, const std::string& planner, const std::string& encoding,
+    GymProxy(const py::object& gym_env, const std::string& planner, const std::string& encoding,
              double space_relative_precision = 0.001,
              size_t frameskip = 15,
              double simulator_budget = 150000,
@@ -43,12 +43,14 @@ public :
                 py::print("ERROR: unsupported feature atom vector encoding '" + encoding + "'");
             }
             if (planner == "bfs-iw") {
-                planner_ = std::make_unique<BfsIW<GymProxy>>(*this, frameskip, observation_space_->get_number_of_feature_atoms(), simulator_budget,
+                planner_ = std::make_unique<BfsIW<GymProxy>>(*this, frameskip,
+                                                             observation_space_->get_number_of_feature_atoms(), simulator_budget,
                                                              time_budget, novelty_subtables, random_actions, max_rep,
                                                              discount, nodes_threshold, break_ties_using_rewards,
                                                              debug_threshold, random_seed, logger_mode);
             } else if (planner == "rollout-iw") {
-                planner_ = std::make_unique<RolloutIW<GymProxy>>(*this, frameskip, observation_space_->get_number_of_feature_atoms(), simulator_budget,
+                planner_ = std::make_unique<RolloutIW<GymProxy>>(*this, frameskip,
+                                                                 observation_space_->get_number_of_feature_atoms(), simulator_budget,
                                                                  time_budget, novelty_subtables, random_actions, max_rep,
                                                                  discount, nodes_threshold, max_depth,
                                                                  debug_threshold, random_seed, logger_mode);
@@ -264,7 +266,7 @@ public :
     };
 
 private :
-    py::object& gym_env_;
+    py::object gym_env_;
     double space_relative_precision_;
     std::unique_ptr<GymSpace> observation_space_;
     std::unique_ptr<GymSpace> action_space_;
