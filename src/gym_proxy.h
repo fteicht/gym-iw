@@ -44,13 +44,13 @@ public :
             }
             if (planner == "bfs-iw") {
                 planner_ = std::make_unique<BfsIW<GymProxy>>(*this, frameskip,
-                                                             observation_space_->get_number_of_feature_atoms(), simulator_budget,
+                                                             observation_space_->get_number_of_tracked_atoms(), simulator_budget,
                                                              time_budget, novelty_subtables, random_actions, max_rep,
                                                              discount, nodes_threshold, break_ties_using_rewards,
                                                              debug_threshold, random_seed, logger_mode);
             } else if (planner == "rollout-iw") {
                 planner_ = std::make_unique<RolloutIW<GymProxy>>(*this, frameskip,
-                                                                 observation_space_->get_number_of_feature_atoms(), simulator_budget,
+                                                                 observation_space_->get_number_of_tracked_atoms(), simulator_budget,
                                                                  time_budget, novelty_subtables, random_actions, max_rep,
                                                                  discount, nodes_threshold, max_depth,
                                                                  debug_threshold, random_seed, logger_mode);

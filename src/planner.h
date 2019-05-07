@@ -40,17 +40,17 @@ struct Planner {
         // set logger mode and log mode
         Logger::mode_t lg = Logger::Silent;
         if( logger_mode == "debug" ) {
-            logger_mode = Logger::Debug;
+            lg = Logger::Debug;
         } else if( logger_mode == "info" ) {
-            logger_mode = Logger::Info;
+            lg = Logger::Info;
         } else if( logger_mode == "warning" ) {
-            logger_mode = Logger::Warning;
+            lg = Logger::Warning;
         } else if( logger_mode == "error" ) {
-            logger_mode = Logger::Error;
+            lg = Logger::Error;
         } else if( logger_mode == "stats" ) {
-            logger_mode = Logger::Stats;
+            lg = Logger::Stats;
         } else if( logger_mode == "silent" ) {
-            logger_mode = Logger::Silent;
+            lg = Logger::Silent;
         } else {
             Logger::Error << "invalid logger mode '" << logger_mode << "'" << std::endl;
             exit(-1);

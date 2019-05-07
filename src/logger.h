@@ -6,7 +6,10 @@
 #include <cassert>
 #include <iostream>
 #include <string>
+#include <pybind11/iostream.h>
 #include "utils.h"
+
+namespace py = pybind11;
 
 // Inspired by logger in Arcade Learning Environment
 
@@ -155,6 +158,11 @@ class Logger {
 
 template<typename T>
 inline Logger::Mode operator<<(Logger::mode_t log, const T &value) {
+    std::unique_ptr<py::scoped_ostream_redirect> python_stream_redirect;
+    if (&Logger::output_stream() == &std::cout)
+        python_stream_redirect = std::make_unique<py::scoped_ostream_redirect>();
+    else if (&Logger::output_stream() == &std::cerr)
+        python_stream_redirect = std::make_unique<py::scoped_estream_redirect>();
     if( Logger::available() && (log >= Logger::current_mode()) )
         Logger::output_stream() << Logger::prefix(log) << value;
     return Logger::Mode(log, 0, true);
@@ -162,6 +170,11 @@ inline Logger::Mode operator<<(Logger::mode_t log, const T &value) {
 
 template<typename T>
 inline Logger::Mode operator<<(Logger::Mode mode, const T &value) {
+    std::unique_ptr<py::scoped_ostream_redirect> python_stream_redirect;
+    if (&Logger::output_stream() == &std::cout)
+        python_stream_redirect = std::make_unique<py::scoped_ostream_redirect>();
+    else if (&Logger::output_stream() == &std::cerr)
+        python_stream_redirect = std::make_unique<py::scoped_estream_redirect>();
     if( Logger::available() && (mode.mode_ >= Logger::current_mode()) ) {
         if( (mode.mode_ == Logger::Debug) && (mode.debug_severity_ >= Logger::current_debug_threshold()) ) {
             if( !mode.continuation_ )
@@ -177,12 +190,22 @@ inline Logger::Mode operator<<(Logger::Mode mode, const T &value) {
 }
 
 inline Logger::Mode operator<<(Logger::mode_t log, std::ostream& (*manip)(std::ostream&)) {
+    std::unique_ptr<py::scoped_ostream_redirect> python_stream_redirect;
+    if (&Logger::output_stream() == &std::cout)
+        python_stream_redirect = std::make_unique<py::scoped_ostream_redirect>();
+    else if (&Logger::output_stream() == &std::cerr)
+        python_stream_redirect = std::make_unique<py::scoped_estream_redirect>();
     if( Logger::available() && (log >= Logger::current_mode()) )
         manip(Logger::output_stream());
     return Logger::Mode(log, 0, true);
 }
 
 inline Logger::Mode operator<<(Logger::Mode mode, std::ostream& (*manip)(std::ostream&)) {
+    std::unique_ptr<py::scoped_ostream_redirect> python_stream_redirect;
+    if (&Logger::output_stream() == &std::cout)
+        python_stream_redirect = std::make_unique<py::scoped_ostream_redirect>();
+    else if (&Logger::output_stream() == &std::cerr)
+        python_stream_redirect = std::make_unique<py::scoped_estream_redirect>();
     if( Logger::available() && (mode.mode_ >= Logger::current_mode()) ) {
         if( (mode.mode_ == Logger::Debug) && (mode.debug_severity_ >= Logger::current_debug_threshold()) ) {
             manip(Logger::output_stream());

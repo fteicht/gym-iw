@@ -21,6 +21,7 @@ public :
 
     static std::unique_ptr<GymSpace> import_from_python(const py::object& gym_space, Encoding encoding, double space_relative_precision = 0.001, unsigned int feature_atom_vector_begin = 0);
     inline unsigned int get_number_of_feature_atoms() const {return number_of_feature_atoms_;}
+    virtual unsigned int get_number_of_tracked_atoms() const =0;
     std::vector<int> convert_element_to_feature_atoms(const py::object& element);
     virtual void convert_element_to_feature_atoms(const py::object& element, std::vector<int>& feature_atoms) const =0;
     virtual py::object convert_feature_atoms_to_element(const std::vector<int>& feature_atoms) const =0;
@@ -71,6 +72,10 @@ public :
 
     static std::unique_ptr<GymSpace> import_from_python(const py::object& gym_space, double space_relative_precision = 0.001, unsigned int feature_atom_vector_begin = 0);
     
+    virtual inline unsigned int get_number_of_tracked_atoms() const {
+        return get_number_of_tracked_atoms_generic();
+    }
+    
     virtual void convert_element_to_feature_atoms(const py::object& element, std::vector<int>& feature_atoms) const {
         convert_element_to_feature_atoms_generic(element, feature_atoms);
     }
@@ -115,6 +120,27 @@ private :
     inline std::enable_if_t<EE == GymSpace::ENCODING_VARIABLE_VECTOR, void> initialize_number_of_atoms() {
         number_of_feature_atoms_ = low_.size();
     }
+
+    // Get number of tracked atoms for byte vector encoding
+    template <Encoding EE = E>
+    inline std::enable_if_t<EE == GymSpace::ENCODING_BYTE_VECTOR, unsigned int> get_number_of_tracked_atoms_generic() const {
+        return number_of_feature_atoms_ * 256;
+    }
+
+    // Get number of tracked atoms for variable vector encoding
+    template <Encoding EE = E, typename TT = T>
+    inline std::enable_if_t<(EE == GymSpace::ENCODING_VARIABLE_VECTOR)  && std::is_integral<TT>::value, unsigned int> get_number_of_tracked_atoms_generic() const {
+        return get_number_of_tracked_atoms_int();
+    }
+
+    // Get number of tracked atoms for variable vector encoding
+    template <Encoding EE = E, typename TT = T>
+    inline std::enable_if_t<(EE == GymSpace::ENCODING_VARIABLE_VECTOR)  && std::is_floating_point<TT>::value, unsigned int> get_number_of_tracked_atoms_generic() const {
+        return get_number_of_tracked_atoms_float();
+    }
+
+    unsigned int get_number_of_tracked_atoms_int() const;
+    unsigned int get_number_of_tracked_atoms_float() const;
 
     // Convertor for byte vector encoding
     template <Encoding EE = E>
@@ -229,6 +255,7 @@ public :
     virtual ~DictSpace() {}
 
     static std::unique_ptr<GymSpace> import_from_python(const py::object& gym_space, Encoding encoding, double space_relative_precision = 0.001, unsigned int feature_atom_vector_begin = 0);
+    virtual unsigned int get_number_of_tracked_atoms() const;
     virtual void convert_element_to_feature_atoms(const py::object& element, std::vector<int>& feature_atoms) const;
     virtual py::object convert_feature_atoms_to_element(const std::vector<int>& feature_atoms) const;
     virtual void enumerate(const std::function<void(const std::vector<int>&)>& f, std::vector<int>& feature_atoms) const;
@@ -248,6 +275,7 @@ public :
     virtual ~DiscreteSpace() {}
 
     static std::unique_ptr<GymSpace> import_from_python(const py::object& gym_space, unsigned int feature_atom_vector_begin = 0);
+    virtual unsigned int get_number_of_tracked_atoms() const;
     virtual void convert_element_to_feature_atoms(const py::object& element, std::vector<int>& feature_atoms) const;
     virtual py::object convert_feature_atoms_to_element(const std::vector<int>& feature_atoms) const;
     virtual void enumerate(const std::function<void(const std::vector<int>&)>& f, std::vector<int>& feature_atoms) const;
@@ -264,6 +292,7 @@ public :
     virtual ~MultiBinarySpace() {}
 
     static std::unique_ptr<GymSpace> import_from_python(const py::object& gym_space, unsigned int feature_atom_vector_begin = 0);
+    virtual unsigned int get_number_of_tracked_atoms() const;
     virtual void convert_element_to_feature_atoms(const py::object& element, std::vector<int>& feature_atoms) const;
     virtual py::object convert_feature_atoms_to_element(const std::vector<int>& feature_atoms) const;
     virtual void enumerate(const std::function<void(const std::vector<int>&)>& f, std::vector<int>& feature_atoms) const;
@@ -285,6 +314,7 @@ public :
     virtual ~MultiDiscreteSpace() {}
 
     static std::unique_ptr<GymSpace> import_from_python(const py::object& gym_space, unsigned int feature_atom_vector_begin = 0);
+    virtual unsigned int get_number_of_tracked_atoms() const;
     virtual void convert_element_to_feature_atoms(const py::object& element, std::vector<int>& feature_atoms) const;
     virtual py::object convert_feature_atoms_to_element(const std::vector<int>& feature_atoms) const;
     virtual void enumerate(const std::function<void(const std::vector<int>&)>& f, std::vector<int>& feature_atoms) const;
@@ -303,6 +333,7 @@ public :
     virtual ~TupleSpace() {}
 
     static std::unique_ptr<GymSpace> import_from_python(const py::object& gym_space, Encoding encoding, double space_relative_precision = 0.001, unsigned int feature_atom_vector_begin = 0);
+    virtual unsigned int get_number_of_tracked_atoms() const;
     virtual void convert_element_to_feature_atoms(const py::object& element, std::vector<int>& feature_atoms) const;
     virtual py::object convert_feature_atoms_to_element(const std::vector<int>& feature_atoms) const;
     virtual void enumerate(const std::function<void(const std::vector<int>&)>& f, std::vector<int>& feature_atoms) const;
