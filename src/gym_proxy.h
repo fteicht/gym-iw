@@ -132,14 +132,15 @@ public :
     }
 
     // import from python
-    py::object reset_env() {
+    py::object reset_env(bool clear_saved_environments = false) {
         try {
             if (!py::hasattr(gym_env_, "reset")) {
                 py::print("ERROR: Gym env without 'reset' method");
                 return py::none();
             } else {
                 py::object observation = gym_env_.attr("reset")();
-                saved_environments_.clear();
+                if (clear_saved_environments)
+                    saved_environments_.clear();
                 saved_environments_.insert(std::make_pair(observation, gym_env_));
                 last_saved_observation_ = observation;
                 return observation;
@@ -216,7 +217,7 @@ public :
         try {
             if (saved_environments_.find(observation) == saved_environments_.end()) {
                 py::object copy = py::module::import("copy").attr("copy");
-                saved_environments_.emplace(std::make_pair(observation, copy(gym_env_))); // observation belongs to a node that must not be deleted before saved_environments_!
+                saved_environments_[observation] = copy(gym_env_); // observation belongs to a node that must not be deleted before saved_environments_!
                 last_saved_observation_ = observation;
             }
         } catch (const std::exception& e) {

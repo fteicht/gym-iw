@@ -92,13 +92,13 @@ struct Planner {
         }
 
         // reset simulator
-        sim_.reset_env();
+        typename Environment::Observation current_observation = sim_.reset_env(true);
 
         // execute actions in initial prefix
         double last_reward = std::numeric_limits<double>::infinity();
         bool termination;
         for( size_t k = 0; k < prefix.size(); ++k ) {
-            sim_.step(prefix[k], last_reward, termination);
+            current_observation = sim_.step(prefix[k], last_reward, termination);
             acc_reward_ += last_reward;
         }
         assert(last_reward != std::numeric_limits<double>::infinity());
@@ -107,6 +107,8 @@ struct Planner {
         Node<Environment> *node = nullptr;
         std::deque<typename Environment::Action> branch;
         for( size_t frame = 0; !termination && (frame < max_execution_length_in_frames); frame += frameskip_ ) {
+            Logger::Debug << "Episode frame: " << frame << std::endl;
+
             // if empty branch, get branch
             if( branch.empty() ) {
                 ++acc_decisions_;
@@ -117,6 +119,9 @@ struct Planner {
                     assert(node->parent_ != nullptr);
                     assert(node->parent_->observation_ != nullptr);
                 }
+
+                // Save current observation
+                sim_.save_observation(current_observation);
 
                 node = get_branch(prefix, node, last_reward, branch);
                 acc_simulator_time_ += simulator_time();
@@ -156,8 +161,11 @@ struct Planner {
             typename Environment::Action action = branch.front();
             branch.pop_front();
 
+            // restore saved observation
+            sim_.restore_observation(current_observation);
+
             // apply action
-            sim_.step(action, last_reward, termination);
+            current_observation = sim_.step(action, last_reward, termination);
             prefix.push_back(action);
             acc_reward_ += last_reward;
             acc_frames_ += frameskip_;
