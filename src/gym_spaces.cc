@@ -126,7 +126,7 @@ void BoxSpace<E, T>::convert_element_to_feature_atoms_byte(const py::object& ele
         }
         py::array_t<T> celement;
         if (!py::isinstance<py::array_t<T>>(element)) {
-            py::print("WARNING: Gym box space element not of same 'dtype' than the box space (requires a copy of the element to the box space's 'dtype')");
+            //py::print("WARNING: Gym box space element not of same 'dtype' than the box space (requires a copy of the element to the box space's 'dtype')");
             celement = py::cast<py::array_t<T>>(element.attr("astype")(low_.attr("dtype")));
         } else {
             celement = py::cast<py::array_t<T>>(element);
@@ -156,7 +156,7 @@ void BoxSpace<E, T>::convert_element_to_feature_atoms_int(const py::object& elem
         }
         py::array_t<T> celement;
         if (!py::isinstance<py::array_t<T>>(element)) {
-            py::print("WARNING: Gym box space element not of same 'dtype' than the box space (requires a copy of the element to the box space's 'dtype')");
+            //py::print("WARNING: Gym box space element not of same 'dtype' than the box space (requires a copy of the element to the box space's 'dtype')");
             celement = py::cast<py::array_t<T>>(element.attr("astype")(low_.attr("dtype")));
         } else {
             celement = py::cast<py::array_t<T>>(element);
@@ -184,7 +184,7 @@ void BoxSpace<E, T>::convert_element_to_feature_atoms_float(const py::object& el
         }
         py::array_t<T> celement;
         if (!py::isinstance<py::array_t<T>>(element)) {
-            py::print("WARNING: Gym box space element not of same 'dtype' than the box space (requires a copy of the element to the box space's 'dtype')");
+            //py::print("WARNING: Gym box space element not of same 'dtype' than the box space (requires a copy of the element to the box space's 'dtype')");
             celement = py::cast<py::array_t<T>>(element.attr("astype")(low_.attr("dtype")));
         } else {
             celement = py::cast<py::array_t<T>>(element);
@@ -635,7 +635,7 @@ void MultiBinarySpace<GymSpace::ENCODING_BYTE_VECTOR>::convert_element_to_featur
         }
         py::array_t<std::int8_t> celement;
         if (!py::isinstance<py::array_t<std::int8_t>>(element)) {
-            py::print("WARNING: Gym multi-binary space element not of int8 'dtype' (requires a copy of the element to the int8 'dtype')");
+            //py::print("WARNING: Gym multi-binary space element not of int8 'dtype' (requires a copy of the element to the int8 'dtype')");
             celement = py::cast<py::array_t<std::int8_t>>(element.attr("astype")(py::module::import("numpy").attr("dtype")("int8")));
         } else {
             celement = py::cast<py::array_t<std::int8_t>>(element);
@@ -670,7 +670,7 @@ void MultiBinarySpace<GymSpace::ENCODING_VARIABLE_VECTOR>::convert_element_to_fe
         }
         py::array_t<std::int8_t> celement;
         if (!py::isinstance<py::array_t<std::int8_t>>(element)) {
-            py::print("WARNING: Gym multi-binary space element not of int8 'dtype' (requires a copy of the element to the int8 'dtype')");
+            //py::print("WARNING: Gym multi-binary space element not of int8 'dtype' (requires a copy of the element to the int8 'dtype')");
             celement = py::cast<py::array_t<std::int8_t>>(element.attr("astype")(py::module::import("numpy").attr("dtype")("int8")));
         } else {
             celement = py::cast<py::array_t<std::int8_t>>(element);
@@ -841,7 +841,7 @@ void MultiDiscreteSpace<GymSpace::ENCODING_BYTE_VECTOR>::convert_element_to_feat
         }
         py::array_t<std::int64_t> celement;
         if (!py::isinstance<py::array_t<std::int64_t>>(element)) {
-            py::print("WARNING: Gym multi-discrete space element not of int8 'dtype' (requires a copy of the element to the int64 'dtype')");
+            //py::print("WARNING: Gym multi-discrete space element not of int8 'dtype' (requires a copy of the element to the int64 'dtype')");
             celement = py::cast<py::array_t<std::int64_t>>(element.attr("astype")(py::module::import("numpy").attr("dtype")("int64")));
         } else {
             celement = py::cast<py::array_t<std::int64_t>>(element);
@@ -871,7 +871,7 @@ void MultiDiscreteSpace<GymSpace::ENCODING_VARIABLE_VECTOR>::convert_element_to_
         }
         py::array_t<std::int64_t> celement;
         if (!py::isinstance<py::array_t<std::int64_t>>(element)) {
-            py::print("WARNING: Gym multi-discrete space element not of int8 'dtype' (requires a copy of the element to the int64 'dtype')");
+            //py::print("WARNING: Gym multi-discrete space element not of int8 'dtype' (requires a copy of the element to the int64 'dtype')");
             celement = py::cast<py::array_t<std::int64_t>>(element.attr("astype")(py::module::import("numpy").attr("dtype")("int64")));
         } else {
             celement = py::cast<py::array_t<std::int64_t>>(element);

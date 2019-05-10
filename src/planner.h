@@ -26,6 +26,15 @@ struct Planner {
     size_t acc_height_;
     size_t acc_expanded_;
 
+    struct Episode {
+        std::vector<typename Environment::Action> prefix;
+        Node<Environment>* node;
+        double start_time;
+        int lookahead_caching;
+    };
+
+    Episode episode_;
+
     Planner(Environment &sim,
             size_t frameskip,
             int debug_threshold,
@@ -34,6 +43,7 @@ struct Planner {
         : sim_(sim),
           frameskip_(frameskip),
           debug_threshold_(debug_threshold) {
+        episode_.node = nullptr;
         // set random seed for lrand48() and drand48()
         srand48(random_seed);
 
@@ -59,7 +69,17 @@ struct Planner {
         Logger::set_debug_threshold(debug_threshold);
     }
 
-    virtual ~Planner() { }
+    virtual ~Planner() {
+        // properly clear episode_.node in case we come from a previous episode
+        // that was not properly ended by calling episode_end()
+        if( episode_.node != nullptr ) {
+            assert(episode_.node->parent_ != nullptr);
+            assert(episode_.node->parent_->parent_ == nullptr);
+            remove_tree(episode_.node->parent_);
+            episode_.node = nullptr;
+        }
+    }
+
     virtual std::string name() const = 0;
     virtual std::string str() const = 0;
     virtual double simulator_time() const = 0;
@@ -258,6 +278,121 @@ struct Planner {
             << " random-decisions=" << acc_random_decisions_
             << std::endl;
         }
+    }
+
+    // interactive episode session begin (before calling act() several times)
+    void start_episode(int lookahead_caching = 2) {
+        episode_.start_time = Utils::read_time_in_seconds();
+        episode_.lookahead_caching = lookahead_caching;
+        episode_.prefix.clear();
+
+        reset_stat_variables();
+
+        // reset simulator
+        sim_.reset_env(true);
+        episode_.prefix.push_back(random_action()); // fake action to initialize the prefix (get_branch() requires non-empty prefix)
+
+        // properly clear episode_.node in case we come from a previous episode
+        // that was not properly ended by calling episode_end()
+        if( episode_.node != nullptr ) {
+            assert(episode_.node->parent_ != nullptr);
+            assert(episode_.node->parent_->parent_ == nullptr);
+            remove_tree(episode_.node->parent_);
+            episode_.node = nullptr;
+        }
+    }
+
+    typename Environment::Action act(const typename Environment::Observation& observation, double reward, bool done) {
+        ++acc_decisions_;
+
+        if( (episode_.node != nullptr) && (episode_.lookahead_caching == 1) ) {
+            episode_.node->clear_cached_observations();
+            assert(episode_.node->observation_ == nullptr);
+            assert(episode_.node->parent_ != nullptr);
+            assert(episode_.node->parent_->observation_ != nullptr);
+        }
+
+        // Save current observation
+        sim_.save_observation(observation);
+
+        std::deque<typename Environment::Action> branch;
+        episode_.node = get_branch(episode_.prefix, episode_.node, reward, branch);
+        acc_simulator_time_ += simulator_time();
+        acc_simulator_calls_ += simulator_calls();
+        max_simulator_calls_ = std::max(max_simulator_calls_, simulator_calls());
+        acc_random_decisions_ += random_decision() ? 1 : 0;
+        acc_height_ += height();
+        acc_expanded_ += expanded();
+
+        if( branch.empty() ) {
+            Logger::Error << "no more available actions!" << std::endl;
+            return random_action();
+        }
+
+        // select action to apply
+        typename Environment::Action action = branch.front();
+        Logger::Info << "executable-action: " << action << std::endl;
+
+        // restore saved observation
+        sim_.restore_observation(observation);
+
+        // apply action
+        //episode_.current_observation = sim_.step(action, episode_.last_reward, episode_.termination);
+        episode_.prefix.push_back(action);
+        acc_reward_ += reward;
+        acc_frames_ += 1; // frameskip_ == 1 in interactive episode mode
+        Logger::Stats << "step-stats: acc-reward=" << acc_reward_ << ", acc-frames=" << acc_frames_ << std::endl;
+
+        // advance/destroy lookhead tree
+        if( episode_.node != nullptr ) {
+            if( (episode_.lookahead_caching == 0) || (episode_.node->num_children_ == 0) ) {
+                remove_tree(episode_.node);
+                episode_.node = nullptr;
+            } else {
+                assert(episode_.node->parent_->observation_ != nullptr);
+                episode_.node = episode_.node->advance(action);
+            }
+        }
+
+        return action;
+    }
+
+    // interactive episode session end (after calling act() several times)
+    void end_episode() {
+        // cleanup
+        if( episode_.node != nullptr ) {
+            assert(episode_.node->parent_ != nullptr);
+            assert(episode_.node->parent_->parent_ == nullptr);
+            remove_tree(episode_.node->parent_);
+            episode_.node = nullptr;
+        }
+        double elapsed_time = Utils::read_time_in_seconds() - episode_.start_time;
+        log_stats();
+        Logger::Stats
+        << "episode-stats:"
+        // planner
+        << " planner=" << str()
+        // general options
+        << " debug-threshold=" << debug_threshold_
+        << " frameskip=" << 1 // frameskip_ == 1 in interactive episode mode
+        << " seed=" << random_seed_
+        // online execution
+        << " caching=" << episode_.lookahead_caching;
+        // planner-specific
+        log_stats();
+        Logger::Stats
+        // data
+        << " score=" << acc_reward_
+        << " frames=" << acc_frames_
+        << " decisions=" << acc_decisions_
+        << " simulator-calls=" << acc_simulator_calls_
+        << " max-simulator-calls=" << max_simulator_calls_
+        << " total-time=" << elapsed_time
+        << " simulator-time=" << acc_simulator_time_
+        << " sum-expanded=" << acc_expanded_
+        << " sum-height=" << acc_height_
+        << " random-decisions=" << acc_random_decisions_
+        << std::endl;
     }
 
     virtual void log_stats() const =0;

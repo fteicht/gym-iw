@@ -41,6 +41,8 @@ PYBIND11_MODULE(gym_iw, giw) {
                  py::arg("prefix_length_to_execute")=0.0,
                  py::arg("execute_single_action")=false,
                  py::arg("max_execution_length_in_frames")=18000)
-            //.def("act", &GymProxy::act)
+            .def("start_episode", &GymProxy::start_episode, py::arg("lookahead_caching")=2)
+            .def("act", &GymProxy::act)
+            .def("end_episode", &GymProxy::end_episode)
             ;
 }

@@ -91,18 +91,6 @@ public :
     }
 
     // export to python
-    py::object act(const py::object& observation, double reward, bool done) {
-        try {
-            std::vector<int> observation_encoding = observation_space_->convert_element_to_feature_atoms(observation);
-            std::vector<int> action; // TODO: link with planner
-            return action_space_->convert_feature_atoms_to_element(action);
-        } catch (const std::exception& e) {
-            py::print("Python binding error: " + std::string(e.what()));
-            return py::object();
-        }
-    }
-
-    // export to python
     void enumerate_observations_conv(const std::function<void(const py::array_t<std::int64_t>&)>& f) {
         observation_space_->enumerate([&f](const std::vector<int>& v)->void {
             f(py::cast(v));
@@ -126,6 +114,34 @@ public :
         try {
             planner_->play(episodes, initial_random_noops, lookahead_caching,
                            prefix_length_to_execute, execute_single_action, max_execution_length_in_frames);
+        } catch (const std::exception& e) {
+            py::print("Python binding error: " + std::string(e.what()));
+        }
+    }
+
+    // export to python
+    void start_episode(int lookahead_caching = 2) {
+        try {
+            planner_->start_episode(lookahead_caching);
+        } catch (const std::exception& e) {
+            py::print("Python binding error: " + std::string(e.what()));
+        }
+    }
+
+    // export to python
+    py::object act(const py::object& observation, double reward, bool done) {
+        try {
+            return planner_->act(observation, reward, done);
+        } catch (const std::exception& e) {
+            py::print("Python binding error: " + std::string(e.what()));
+            return py::object();
+        }
+    }
+
+    // export to python
+    void end_episode() {
+        try {
+            planner_->end_episode();
         } catch (const std::exception& e) {
             py::print("Python binding error: " + std::string(e.what()));
         }
@@ -217,7 +233,8 @@ public :
         try {
             if (saved_environments_.find(observation) == saved_environments_.end()) {
                 py::object copy = py::module::import("copy").attr("copy");
-                saved_environments_[observation] = copy(gym_env_); // observation belongs to a node that must not be deleted before saved_environments_!
+                saved_environments_[observation] = gym_env_;
+                gym_env_ = copy(gym_env_);
                 last_saved_observation_ = observation;
             }
         } catch (const std::exception& e) {
@@ -233,8 +250,7 @@ public :
                     py::print("ERROR: no such observation to restore");
                     return;
                 }
-                py::object copy = py::module::import("copy").attr("copy");
-                gym_env_ = copy(i->second);
+                gym_env_ = i->second;
                 last_saved_observation_ = observation;
             }
         } catch (const std::exception& e) {
