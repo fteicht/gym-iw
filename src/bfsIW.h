@@ -228,10 +228,8 @@ struct BfsIW : SimPlanner<Environment> {
         Logger::Info << "queue: sz=" << q.size() << std::endl;
 
         // save current observation
-        assert(root->observation_ != nullptr);
-        typename Environment::Observation current_observation = *(root->observation_);
-        //this->save_observation(current_observation);
-        this->save_environment();
+        assert(root->parent_->observation_ != nullptr);
+        this->save_environment(*(root->parent_->observation_));
 
         // explore in breadth-first manner
         double start_time = Utils::read_time_in_seconds();
@@ -246,17 +244,17 @@ struct BfsIW : SimPlanner<Environment> {
             assert((node->num_children_ == 0) && (node->first_child_ == nullptr));
             assert(node->visited_ || (node->is_info_valid_ != 2));
             if( node->is_info_valid_ != 2 ) {
+                // restore saved observation point
                 assert(node->parent_->observation_ != nullptr);
-                if (!(typename Environment::ObservationEqual()(*(node->parent_->observation_), current_observation))) {
-                    //this->save_observation(current_observation);
-                    //this->restore_observation(*(node->parent_->observation_));
-                    this->save_environment();
-                    this->restore_environment();
-                } 
+                this->restore_environment(*(node->parent_->observation_));
+                this->save_environment(*(node->parent_->observation_));
+
                 this->update_info(node);
-                current_observation = *(node->observation_);
                 assert((node->num_children_ == 0) && (node->first_child_ == nullptr));
                 node->visited_ = true;
+
+                // save observation point
+                this->save_environment(*(node->observation_));
             }
 
             // check termination at this node
@@ -358,7 +356,7 @@ struct BfsIW : SimPlanner<Environment> {
           << " total-time=" << total_time_
           << " simulator-time=" << this->sim_time_
           << " reset-time=" << this->sim_reset_time_
-          << " get/set-state-time=" << this->sim_save_environment_time_
+          << " save/restore-environment-time=" << this->sim_save_environment_time_
           << " expand-time=" << expand_time_
           << " update-novelty-time=" << this->update_novelty_time_
           << " get-atoms-calls=" << this->get_atoms_calls_

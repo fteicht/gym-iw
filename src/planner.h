@@ -140,7 +140,7 @@ struct Planner {
                     assert(node->parent_->observation_ != nullptr);
                 }
 
-                // Save current observation
+                // Save current observation point
                 sim_.save_environment();
 
                 node = get_branch(prefix, node, last_reward, branch);
@@ -150,6 +150,9 @@ struct Planner {
                 acc_random_decisions_ += random_decision() ? 1 : 0;
                 acc_height_ += height();
                 acc_expanded_ += expanded();
+
+                // restore saved observation point
+                sim_.restore_environment();
 
                 if( branch.empty() ) {
                     Logger::Error << "no more available actions!" << std::endl;
@@ -181,9 +184,6 @@ struct Planner {
             typename Environment::Action action = branch.front();
             branch.pop_front();
 
-            // restore saved observation
-            sim_.restore_environment();
-
             // apply action
             current_observation = sim_.step(action, last_reward, termination);
             prefix.push_back(action);
@@ -213,6 +213,7 @@ struct Planner {
             assert(node->parent_->parent_ == nullptr);
             remove_tree(node->parent_);
         }
+        sim_.clear_saved_points(); // only useful for BFS because some expanded nodes may have saved more environments than actually consumed when expanded some children of those nodes
     }
 
     void reset_stat_variables() {
@@ -366,6 +367,7 @@ struct Planner {
             episode_.node = nullptr;
         }
         sim_.restore_environment();
+        sim_.clear_saved_points(); // only useful for BFS because some expanded nodes may have saved more environments than actually consumed when expanded some children of those nodes
         double elapsed_time = Utils::read_time_in_seconds() - episode_.start_time;
         log_stats();
         Logger::Stats

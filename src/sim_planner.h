@@ -97,15 +97,27 @@ struct SimPlanner : Planner<Environment> {
         sim_reset_time_ += Utils::read_time_in_seconds() - start_time;
     }
 
-    void save_environment() {
+    void save_environment() { // stack version (for rolloutIW)
         double start_time = Utils::read_time_in_seconds();
         this->sim_.save_environment();
         sim_save_environment_time_ += Utils::read_time_in_seconds() - start_time;
     }
 
-    void restore_environment() {
+    void save_environment(const typename Environment::Observation& observation) { // map version (for bfsIW)
+        double start_time = Utils::read_time_in_seconds();
+        this->sim_.save_environment(observation);
+        sim_save_environment_time_ += Utils::read_time_in_seconds() - start_time;
+    }
+
+    void restore_environment() { // stack version (for rolloutIW)
         double start_time = Utils::read_time_in_seconds();
         this->sim_.restore_environment();
+        sim_save_environment_time_ += Utils::read_time_in_seconds() - start_time;
+    }
+
+    void restore_environment(const typename Environment::Observation& observation) { // map version (for bfsIW)
+        double start_time = Utils::read_time_in_seconds();
+        this->sim_.restore_environment(observation);
         sim_save_environment_time_ += Utils::read_time_in_seconds() - start_time;
     }
 

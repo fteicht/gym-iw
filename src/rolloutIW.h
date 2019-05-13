@@ -419,7 +419,7 @@ struct RolloutIW : SimPlanner<Environment> {
           << " total-time=" << total_time_
           << " simulator-time=" << this->sim_time_
           << " reset-time=" << this->sim_reset_time_
-          << " get/set-state-time=" << this->sim_save_environment_time_
+          << " save/restore-environment-time=" << this->sim_save_environment_time_
           << " expand-time=" << expand_time_
           << " update-novelty-time=" << this->update_novelty_time_
           << " get-atoms-calls=" << this->get_atoms_calls_
