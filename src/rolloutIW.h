@@ -143,12 +143,6 @@ struct RolloutIW : SimPlanner<Environment> {
         root->reset_frame_rep_counters(this->frameskip_);
         root->recompute_path_rewards(root);
 
-        // Prepare rollout: save the environment since all rollouts will begin
-        // from the current observation
-        assert(root->parent_->observation_ != nullptr);
-        py::object saved_observation = *(root->parent_->observation_);
-        this->save_observation(saved_observation);
-
         // construct/extend lookahead tree
         if( int(root->num_nodes()) < nodes_threshold_ ) {
             double elapsed_time = Utils::read_time_in_seconds() - start_time;
@@ -159,8 +153,9 @@ struct RolloutIW : SimPlanner<Environment> {
             Logger::Debug << "";
             while( !root->solved_ && (int(this->simulator_calls_) < this->simulator_budget_) && (elapsed_time < this->time_budget_) ) {
                 Logger::Continuation(Logger::Debug) << '.' << std::flush;
-                this->restore_observation(saved_observation);
+                this->save_environment();
                 rollout(root, novelty_table_map);
+                this->restore_environment();
                 elapsed_time = Utils::read_time_in_seconds() - start_time;
             }
             Logger::Continuation(Logger::Debug) << std::endl;
@@ -424,7 +419,7 @@ struct RolloutIW : SimPlanner<Environment> {
           << " total-time=" << total_time_
           << " simulator-time=" << this->sim_time_
           << " reset-time=" << this->sim_reset_time_
-          << " get/set-state-time=" << this->sim_get_set_state_time_
+          << " get/set-state-time=" << this->sim_save_environment_time_
           << " expand-time=" << expand_time_
           << " update-novelty-time=" << this->update_novelty_time_
           << " get-atoms-calls=" << this->get_atoms_calls_

@@ -24,7 +24,7 @@ struct SimPlanner : Planner<Environment> {
     mutable size_t simulator_calls_;
     mutable double sim_time_;
     mutable double sim_reset_time_;
-    mutable double sim_get_set_state_time_;
+    mutable double sim_save_environment_time_;
 
     mutable size_t get_atoms_calls_;
     mutable double get_atoms_time_;
@@ -54,7 +54,7 @@ struct SimPlanner : Planner<Environment> {
         simulator_calls_ = 0;
         sim_time_ = 0;
         sim_reset_time_ = 0;
-        sim_get_set_state_time_ = 0;
+        sim_save_environment_time_ = 0;
         update_novelty_time_ = 0;
         get_atoms_calls_ = 0;
         get_atoms_time_ = 0;
@@ -62,7 +62,7 @@ struct SimPlanner : Planner<Environment> {
     }
 
     virtual double simulator_time() const {
-        return sim_time_ + sim_reset_time_ + sim_get_set_state_time_;
+        return sim_time_ + sim_reset_time_ + sim_save_environment_time_;
     }
     virtual size_t simulator_calls() const {
         return simulator_calls_;
@@ -97,16 +97,16 @@ struct SimPlanner : Planner<Environment> {
         sim_reset_time_ += Utils::read_time_in_seconds() - start_time;
     }
 
-    void save_observation(const typename Environment::Observation &observation) {
+    void save_environment() {
         double start_time = Utils::read_time_in_seconds();
-        this->sim_.save_observation(observation);
-        sim_get_set_state_time_ += Utils::read_time_in_seconds() - start_time;
+        this->sim_.save_environment();
+        sim_save_environment_time_ += Utils::read_time_in_seconds() - start_time;
     }
 
-    void restore_observation(const typename Environment::Observation &observation) {
+    void restore_environment() {
         double start_time = Utils::read_time_in_seconds();
-        this->sim_.restore_observation(observation);
-        sim_get_set_state_time_ += Utils::read_time_in_seconds() - start_time;
+        this->sim_.restore_environment();
+        sim_save_environment_time_ += Utils::read_time_in_seconds() - start_time;
     }
 
     // update info for node
@@ -224,17 +224,19 @@ struct SimPlanner : Planner<Environment> {
 
     // prefix
     void apply_prefix(const typename Environment::Observation &initial_observation,
-                      const std::vector<typename Environment::Action> &prefix, typename Environment::Observation *last_observation = nullptr) {
+                      const std::vector<typename Environment::Action> &prefix,
+                      typename Environment::Observation *last_observation = nullptr) {
         assert(!prefix.empty());
-        reset_env();
-        typename Environment::Observation obs = initial_observation;
+        typename Environment::Observation obs;
         double reward;
         bool termination;
         for( size_t k = 0; k < prefix.size(); ++k ) {
             if( (last_observation != nullptr) && (1 + k == prefix.size()) ) {
                 *last_observation = obs;
             }
-            call_simulator(prefix[k], obs, reward, termination);
+            if (k > 0) { // first action is random and not to be applied
+                call_simulator(prefix[k], obs, reward, termination);
+            }
         }
     }
 

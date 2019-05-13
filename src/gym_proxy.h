@@ -3,6 +3,7 @@
 #include <pybind11/pybind11.h>
 #include <pybind11/functional.h>
 #include <pybind11/stl.h>
+#include <stack>
 #include "gym_spaces.h"
 #include "bfsIW.h"
 #include "rolloutIW.h"
@@ -155,10 +156,10 @@ public :
                 return py::none();
             } else {
                 py::object observation = gym_env_.attr("reset")();
-                if (clear_saved_environments)
-                    saved_environments_.clear();
-                saved_environments_.insert(std::make_pair(observation, gym_env_));
-                last_saved_observation_ = observation;
+                // if (clear_saved_environments)
+                //     saved_environments_.clear();
+                // saved_environments_.insert(std::make_pair(observation, gym_env_));
+                // last_saved_observation_ = observation;
                 return observation;
             }
         } catch (const std::exception& e) {
@@ -229,33 +230,19 @@ public :
         });
     }
 
-    void save_observation(const py::object& observation) {
+    void save_environment() {
         try {
-            if (saved_environments_.find(observation) == saved_environments_.end()) {
-                py::object copy = py::module::import("copy").attr("copy");
-                saved_environments_[observation] = gym_env_;
-                gym_env_ = copy(gym_env_);
-                last_saved_observation_ = observation;
-            }
+            py::object copy = py::module::import("copy").attr("deepcopy");
+            saved_environments_.push(gym_env_);
+            gym_env_ = copy(gym_env_);
         } catch (const std::exception& e) {
             py::print("Python binding error: " + std::string(e.what()));
         }
     }
 
-    void restore_observation(const py::object& observation) {
-        try {
-            if (!ObservationEqual()(observation, last_saved_observation_)) {
-                auto i = saved_environments_.find(observation);
-                if (i == saved_environments_.end()) {
-                    py::print("ERROR: no such observation to restore");
-                    return;
-                }
-                gym_env_ = i->second;
-                last_saved_observation_ = observation;
-            }
-        } catch (const std::exception& e) {
-            py::print("Python binding error: " + std::string(e.what()));
-        }
+    void restore_environment() {
+        gym_env_ = saved_environments_.top();
+        saved_environments_.pop();
     }
 
     struct ActionEqual {
@@ -287,7 +274,6 @@ private :
     double space_relative_precision_;
     std::unique_ptr<GymSpace> observation_space_;
     std::unique_ptr<GymSpace> action_space_;
-    std::map<py::object, py::object, ObservationLess> saved_environments_; // used by BFS algorithm to backtrack to previously observed observations (saved in nodes) in GYM (no other way than copying the cloning the environment)
-    py::object last_saved_observation_;
+    std::stack<py::object> saved_environments_; // Gym cannot save and restore arbitrary observations so we need to (deep) copy environments at particular observation points
     std::unique_ptr<SimPlanner<GymProxy>> planner_;
 };

@@ -141,7 +141,7 @@ struct Planner {
                 }
 
                 // Save current observation
-                sim_.save_observation(current_observation);
+                sim_.save_environment();
 
                 node = get_branch(prefix, node, last_reward, branch);
                 acc_simulator_time_ += simulator_time();
@@ -182,7 +182,7 @@ struct Planner {
             branch.pop_front();
 
             // restore saved observation
-            sim_.restore_observation(current_observation);
+            sim_.restore_environment();
 
             // apply action
             current_observation = sim_.step(action, last_reward, termination);
@@ -288,8 +288,8 @@ struct Planner {
 
         reset_stat_variables();
 
-        // reset simulator
-        sim_.reset_env(true);
+        // save environment
+        sim_.save_environment();
         episode_.prefix.push_back(random_action()); // fake action to initialize the prefix (get_branch() requires non-empty prefix)
 
         // properly clear episode_.node in case we come from a previous episode
@@ -312,8 +312,8 @@ struct Planner {
             assert(episode_.node->parent_->observation_ != nullptr);
         }
 
-        // Save current observation
-        sim_.save_observation(observation);
+        // Save observation point
+        sim_.save_environment();
 
         std::deque<typename Environment::Action> branch;
         episode_.node = get_branch(episode_.prefix, episode_.node, reward, branch);
@@ -333,11 +333,10 @@ struct Planner {
         typename Environment::Action action = branch.front();
         Logger::Info << "executable-action: " << action << std::endl;
 
-        // restore saved observation
-        sim_.restore_observation(observation);
+        // restore observation point
+        sim_.restore_environment();
 
-        // apply action
-        //episode_.current_observation = sim_.step(action, episode_.last_reward, episode_.termination);
+        // push action to execute in prefix
         episode_.prefix.push_back(action);
         acc_reward_ += reward;
         acc_frames_ += 1; // frameskip_ == 1 in interactive episode mode
@@ -366,6 +365,7 @@ struct Planner {
             remove_tree(episode_.node->parent_);
             episode_.node = nullptr;
         }
+        sim_.restore_environment();
         double elapsed_time = Utils::read_time_in_seconds() - episode_.start_time;
         log_stats();
         Logger::Stats

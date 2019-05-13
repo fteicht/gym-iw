@@ -230,7 +230,8 @@ struct BfsIW : SimPlanner<Environment> {
         // save current observation
         assert(root->observation_ != nullptr);
         typename Environment::Observation current_observation = *(root->observation_);
-        this->save_observation(current_observation);
+        //this->save_observation(current_observation);
+        this->save_environment();
 
         // explore in breadth-first manner
         double start_time = Utils::read_time_in_seconds();
@@ -247,8 +248,10 @@ struct BfsIW : SimPlanner<Environment> {
             if( node->is_info_valid_ != 2 ) {
                 assert(node->parent_->observation_ != nullptr);
                 if (!(typename Environment::ObservationEqual()(*(node->parent_->observation_), current_observation))) {
-                    this->save_observation(current_observation);
-                    this->restore_observation(*(node->parent_->observation_));
+                    //this->save_observation(current_observation);
+                    //this->restore_observation(*(node->parent_->observation_));
+                    this->save_environment();
+                    this->restore_environment();
                 } 
                 this->update_info(node);
                 current_observation = *(node->observation_);
@@ -355,7 +358,7 @@ struct BfsIW : SimPlanner<Environment> {
           << " total-time=" << total_time_
           << " simulator-time=" << this->sim_time_
           << " reset-time=" << this->sim_reset_time_
-          << " get/set-state-time=" << this->sim_get_set_state_time_
+          << " get/set-state-time=" << this->sim_save_environment_time_
           << " expand-time=" << expand_time_
           << " update-novelty-time=" << this->update_novelty_time_
           << " get-atoms-calls=" << this->get_atoms_calls_
