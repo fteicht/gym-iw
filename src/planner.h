@@ -1,4 +1,5 @@
 // (c) 2017 Blai Bonet
+// Modified by Florent Teichteil-Koenigsbuch in 2019
 
 #ifndef PLANNER_H
 #define PLANNER_H

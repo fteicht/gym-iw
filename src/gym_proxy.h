@@ -1,4 +1,4 @@
-// (c) 2019 Florent Teichteil
+// (c) 2019 Florent Teichteil-Koenigsbuch
 
 #include <pybind11/pybind11.h>
 #include <pybind11/functional.h>

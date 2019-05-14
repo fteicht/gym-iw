@@ -1,4 +1,5 @@
 // (c) 2017 Blai Bonet
+// Modified by Florent Teichteil-Koenigsbuch in 2019
 
 #ifndef NODE_H
 #define NODE_H

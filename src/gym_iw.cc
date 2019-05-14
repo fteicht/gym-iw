@@ -1,11 +1,13 @@
+// (c) 2019 Florent Teichteil-Koenigsbuch
+
 #include <pybind11/pybind11.h>
 #include "gym_proxy.h"
 
 namespace py = pybind11;
 
 PYBIND11_MODULE(gym_iw, giw) {
-    py::class_<GymProxy> bfs_iw_agent(giw, "BfsIwAgent");
-        bfs_iw_agent
+    py::class_<GymProxy> gym_iw_agent(giw, "__GymIwAgent");
+        gym_iw_agent
             .def(py::init<const py::object&, const std::string&, const std::string&,
                  double, size_t, double, double, bool, bool, size_t, double,
                  int, bool, size_t, int, int, const std::string&>(),
@@ -42,7 +44,7 @@ PYBIND11_MODULE(gym_iw, giw) {
                  py::arg("execute_single_action")=false,
                  py::arg("max_execution_length_in_frames")=18000)
             .def("start_episode", &GymProxy::start_episode, py::arg("lookahead_caching")=2)
-            .def("act", &GymProxy::act)
+            .def("act", &GymProxy::act, py::arg("observation"), py::arg("reward"), py::arg("done"))
             .def("end_episode", &GymProxy::end_episode)
             ;
 }

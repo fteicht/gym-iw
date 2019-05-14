@@ -1,5 +1,5 @@
 // (c) 2017 Blai Bonet
-// (c) 2019 Florent Teichteil-Koenigsbuch -> make read_time_in_seconds() cross platform
+// Modified by Florent Teichteil-Koenigsbuch in 2019 -> make read_time_in_seconds() cross platform
 
 #ifndef UTILS_H
 #define UTILS_H
