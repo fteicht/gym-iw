@@ -1,32 +1,22 @@
 // (c) 2017 Blai Bonet
+// (c) 2019 Florent Teichteil-Koenigsbuch -> make read_time_in_seconds() cross platform
 
 #ifndef UTILS_H
 #define UTILS_H
 
-#include <stdio.h>
-#include <sys/resource.h>
-#include <sys/time.h>
+#define BOOST_CHRONO_HEADER_ONLY
+#define BOOST_CHRONO_DONT_PROVIDE_HYBRID_ERROR_HANDLING
+
+#include <boost/chrono.hpp>
+#include <string>
 
 namespace Utils {
 
 inline float read_time_in_seconds(bool add_stime = true) {
-    struct rusage r_usage;
-    float time = 0;
-
-    getrusage(RUSAGE_SELF, &r_usage);
-    time += float(r_usage.ru_utime.tv_sec) +
-            float(r_usage.ru_utime.tv_usec) / float(1e6);
-    if( add_stime ) {
-        time += float(r_usage.ru_stime.tv_sec) +
-                float(r_usage.ru_stime.tv_usec) / float(1e6);
-    }
-
-    getrusage(RUSAGE_CHILDREN, &r_usage);
-    time += float(r_usage.ru_utime.tv_sec) +
-            float(r_usage.ru_utime.tv_usec) / float(1e6);
-    if( add_stime ) {
-        time += float(r_usage.ru_stime.tv_sec) +
-                float(r_usage.ru_stime.tv_usec) / float(1e6);
+    double time = 0;
+    time += double(boost::chrono::duration_cast<boost::chrono::microseconds>(boost::chrono::process_user_cpu_clock::now().time_since_epoch()).count()) / double(1e6);
+    if (add_stime) {
+        time += double(boost::chrono::duration_cast<boost::chrono::microseconds>(boost::chrono::process_system_cpu_clock::now().time_since_epoch()).count()) / double(1e6);
     }
 
     return time;
