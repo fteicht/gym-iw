@@ -111,7 +111,7 @@ struct RolloutIW : SimPlanner<Environment> {
         if( root == nullptr ) {
             Node<Environment> *root_parent = new Node<Environment>(nullptr, typename Environment::Action(), -1);
             root_parent->observation_ = std::make_unique<typename Environment::Observation>();
-            this->apply_prefix(this->initial_sim_observation_, prefix, root_parent->observation_.get());
+            this->apply_prefix(prefix, root_parent->observation_.get());
             root = new Node<Environment>(root_parent, prefix.back(), 0);
         }
         assert(root->parent_ != nullptr);

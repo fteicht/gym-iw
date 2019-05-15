@@ -32,7 +32,6 @@ struct SimPlanner : Planner<Environment> {
     mutable double novel_atom_time_;
     mutable double update_novelty_time_;
 
-    typename Environment::Observation initial_sim_observation_;
     std::vector<typename Environment::Action> action_set_;
 
     SimPlanner(Environment &sim,
@@ -94,7 +93,7 @@ struct SimPlanner : Planner<Environment> {
 
     void reset_env() {
         double start_time = Utils::read_time_in_seconds();
-        initial_sim_observation_ = this->sim_.reset_env();
+        this->sim_.reset_env();
         sim_reset_time_ += Utils::read_time_in_seconds() - start_time;
     }
 
@@ -236,8 +235,7 @@ struct SimPlanner : Planner<Environment> {
     }
 
     // prefix
-    void apply_prefix(const typename Environment::Observation &initial_observation,
-                      const std::vector<typename Environment::Action> &prefix,
+    void apply_prefix(const std::vector<typename Environment::Action> &prefix,
                       typename Environment::Observation *last_observation = nullptr) {
         assert(!prefix.empty());
         typename Environment::Observation obs;

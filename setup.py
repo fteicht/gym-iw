@@ -60,12 +60,13 @@ class CMakeBuild(build_ext):
 
 setup(
     name='gym_iw',
+    packages=['gym_iw'],
     version='0.0.1',
     author='Florent Teichteil-Koenigsbuch',
     author_email='florent.teichteil@gmail.com',
     description='IW planners for Openai Gym environments',
     long_description='',
-    ext_modules=[CMakeExtension('gym_iw')],
+    ext_modules=[CMakeExtension('gym_iw/gym_iw')],
     cmdclass=dict(build_ext=CMakeBuild),
     zip_safe=False,
 )

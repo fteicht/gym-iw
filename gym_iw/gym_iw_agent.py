@@ -125,7 +125,7 @@ class GymIwAgent(__GymIwAgent):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=None)
     parser.add_argument('env_id', nargs='?', default='CartPole-v0', help='Select the environment to run')
-    parser.add_argument('planner', nargs='?', default='rollout-iw', help='Select the planner to run (rollout-iw or bfs-iw)')
+    parser.add_argument('planner', nargs='?', default='bfs-iw', help='Select the planner to run (rollout-iw or bfs-iw)')
     parser.add_argument('encoding', nargs='?', default='byte', help='Select the gym space encoding to feature atoms (byte or variable)')
     parser.add_argument('space_relative_precision', nargs='?', default=0.001, help='Select the relative precision of gym space variable-based encoding')
     args = parser.parse_args()
@@ -145,21 +145,22 @@ if __name__ == '__main__':
     env.seed(0)
     agent = GymIwAgent(environment=env, planner=args.planner, encoding=args.encoding, space_relative_precision=args.space_relative_precision)
 
-    episode_count = 100
+    episode_count = 10
 
     for i in range(episode_count):
         reward = 0
         done = False
-
-        agent.start_episode()
+        
         ob = env.reset()
         env.render()
+        env.close()
+        agent.start_episode()
 
         while True:
-            env.close()
             action = agent.act(ob, reward, done)
             ob, reward, done, _ = env.step(action)
             env.render()
+            env.close()
             if done:
                 break
             # Note there's no env.render() here. But the environment still can open window and
@@ -167,6 +168,7 @@ if __name__ == '__main__':
             # Video is not recorded every episode, see
             # capped_cubic_video_schedule for details.
         agent.end_episode()
+        
 
     # Close the env and write monitor result info to disk
     env.close()
