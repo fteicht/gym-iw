@@ -1,7 +1,10 @@
 import argparse
 import sys
+import os
 
-from gym_iw import __GymIwAgent
+sys.path.append(os.path.dirname(os.path.realpath(__file__)))
+
+from __gym_iw import __GymIwAgent
 
 import gym
 from gym import wrappers, logger

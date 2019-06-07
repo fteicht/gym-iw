@@ -5,7 +5,7 @@
 
 namespace py = pybind11;
 
-PYBIND11_MODULE(gym_iw, giw) {
+PYBIND11_MODULE(__gym_iw, giw) {
     py::class_<GymProxy> gym_iw_agent(giw, "__GymIwAgent");
         gym_iw_agent
             .def(py::init<const py::object&, const std::string&, const std::string&,
