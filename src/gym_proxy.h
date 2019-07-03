@@ -43,7 +43,8 @@ public :
             } else {
                 py::print("ERROR: unsupported feature atom vector encoding '" + encoding + "'");
             }
-            if (py::hasattr(gym_env, "get_state") && py::hasattr(gym_env, "set_state")) {
+            if ((py::hasattr(gym_env, "get_state") && py::hasattr(gym_env, "set_state")) ||
+                (py::hasattr(gym_env, "sim") && py::hasattr(gym_env.attr("sim"), "get_state") && py::hasattr(gym_env.attr("sim"), "set_state"))) {
                 environment_saver_ = std::make_unique<EnvironmentStateSaver>(gym_env_);
             } else {
                 environment_saver_ = std::make_unique<EnvironmentCopySaver>(gym_env_);
@@ -350,8 +351,13 @@ private :
     class EnvironmentStateSaver : public EnvironmentSaver {
     public :
         EnvironmentStateSaver(const py::object& gym_env) {
-            get_state_ = gym_env.attr("get_state");
-            set_state_ = gym_env.attr("set_state");
+            if (py::hasattr(gym_env, "get_state") && py::hasattr(gym_env, "set_state")) {
+                get_state_ = gym_env.attr("get_state");
+                set_state_ = gym_env.attr("set_state");
+            } else { // access it via the sim attribute object
+                get_state_ = gym_env.attr("sim").attr("get_state");
+                set_state_ = gym_env.attr("sim").attr("set_state");
+            }
         }
 
         virtual ~EnvironmentStateSaver() {}
