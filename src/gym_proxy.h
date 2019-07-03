@@ -43,6 +43,11 @@ public :
             } else {
                 py::print("ERROR: unsupported feature atom vector encoding '" + encoding + "'");
             }
+            if (py::hasattr(gym_env, "get_state") && py::hasattr(gym_env, "set_state")) {
+                environment_saver_ = std::make_unique<EnvironmentStateSaver>(gym_env_);
+            } else {
+                environment_saver_ = std::make_unique<EnvironmentCopySaver>(gym_env_);
+            }
             if (planner == "bfs-iw") {
                 planner_ = std::make_unique<BfsIW<GymProxy>>(*this, frameskip,
                                                              observation_space_->get_number_of_tracked_atoms(), simulator_budget,
@@ -227,42 +232,23 @@ public :
     }
 
     void save_environment() { // stack version (for rolloutIW)
-        try {
-            py::object copy = py::module::import("copy").attr("deepcopy");
-            saved_environments_stack_.push(gym_env_);
-            gym_env_ = copy(gym_env_);
-        } catch (const std::exception& e) {
-            py::print("Python binding error: " + std::string(e.what()));
-        }
+        environment_saver_->save_environment();
     }
 
     void restore_environment() { // stack version (for rolloutIW)
-        gym_env_ = saved_environments_stack_.top();
-        saved_environments_stack_.pop();
+        environment_saver_->restore_environment();
     }
 
     void save_environment(const py::object& observation) { // map version (for bfsIW)
-        try {
-            py::object copy = py::module::import("copy").attr("deepcopy");
-            saved_environments_map_.insert(std::make_pair(observation, gym_env_));
-            gym_env_ = copy(gym_env_);
-        } catch (const std::exception& e) {
-            py::print("Python binding error: " + std::string(e.what()));
-        }
+        environment_saver_->save_environment(observation);
     }
 
     void restore_environment(const py::object& observation) { // map version (for bfsIW)
-        auto i = saved_environments_map_.find(observation);
-        if (i == saved_environments_map_.end()) {
-            py::print("ERROR: no such observation to restore");
-            return;
-        }
-        gym_env_ = i->second;
-        saved_environments_map_.erase(i);
+        environment_saver_->restore_environment(observation);
     }
 
     void clear_saved_points() { // saved_environments_stack_ should always be empty when clearing a simulation because saved and restore points are called by pairs
-        saved_environments_map_.clear(); // due to BFS search, some expanded nodes may have saved more environments than actually consumed when expanded some children of those nodes
+        environment_saver_->clear_saved_points();
     }
 
     struct ActionEqual {
@@ -290,11 +276,126 @@ public :
     };
 
 private :
+    class EnvironmentSaver {
+    public :
+        virtual ~EnvironmentSaver() {}
+        virtual void save_environment() =0;
+        virtual void restore_environment() =0;
+        virtual void save_environment(const py::object& observation) =0;
+        virtual void restore_environment(const py::object& observation) =0;
+        
+        void clear_saved_points() { // saved_environments_stack_ should always be empty when clearing a simulation because saved and restore points are called by pairs
+            saved_environments_map_.clear(); // due to BFS search, some expanded nodes may have saved more environments than actually consumed when expanding some children of those nodes
+        }
+    
+    protected :
+        std::map<py::object, py::object, ObservationLess> saved_environments_map_; // If Gym cannot save and restore arbitrary observations then we need to (deep) copy environments at particular observation points otherwise we save and restore environment states
+        std::stack<py::object> saved_environments_stack_; // If Gym cannot save and restore arbitrary observations then we need to (deep) copy environments at particular observation points otherwise we save and restore environment states
+    };
+
+    class EnvironmentCopySaver : public EnvironmentSaver {
+    public :
+        virtual ~EnvironmentCopySaver() {}
+        EnvironmentCopySaver(py::object& gym_env)
+        : gym_env_(gym_env) {
+            try {
+                copy_ = py::module::import("copy").attr("deepcopy");
+            } catch (const std::exception& e) {
+                py::print("Python binding error: " + std::string(e.what()));
+            }
+        }
+
+        virtual void save_environment() { // stack version (for rolloutIW)
+            try {
+                saved_environments_stack_.push(gym_env_);
+                gym_env_ = copy_(gym_env_);
+            } catch (const std::exception& e) {
+                py::print("Python binding error: " + std::string(e.what()));
+            }
+        }
+
+        virtual void restore_environment() { // stack version (for rolloutIW)
+            gym_env_ = saved_environments_stack_.top();
+            saved_environments_stack_.pop();
+        }
+
+        virtual void save_environment(const py::object& observation) { // map version (for bfsIW)
+            try {
+                saved_environments_map_.insert(std::make_pair(observation, gym_env_));
+                gym_env_ = copy_(gym_env_);
+            } catch (const std::exception& e) {
+                py::print("Python binding error: " + std::string(e.what()));
+            }
+        }
+
+        virtual void restore_environment(const py::object& observation) { // map version (for bfsIW)
+            auto i = saved_environments_map_.find(observation);
+            if (i == saved_environments_map_.end()) {
+                py::print("ERROR: no such observation to restore");
+                return;
+            }
+            gym_env_ = i->second;
+            saved_environments_map_.erase(i);
+        }
+
+        virtual void clear_saved_points() { // saved_environments_stack_ should always be empty when clearing a simulation because saved and restore points are called by pairs
+            saved_environments_map_.clear(); // due to BFS search, some expanded nodes may have saved more environments than actually consumed when expanding some children of those nodes
+        }
+
+    private :
+        py::object& gym_env_;
+        py::object copy_;
+    };
+
+    class EnvironmentStateSaver : public EnvironmentSaver {
+    public :
+        EnvironmentStateSaver(const py::object& gym_env) {
+            get_state_ = gym_env.attr("get_state");
+            set_state_ = gym_env.attr("set_state");
+        }
+
+        virtual ~EnvironmentStateSaver() {}
+
+        virtual void save_environment() { // stack version (for rolloutIW)
+            try {
+                saved_environments_stack_.push(get_state_());
+            } catch (const std::exception& e) {
+                py::print("Python binding error: " + std::string(e.what()));
+            }
+        }
+
+        virtual void restore_environment() { // stack version (for rolloutIW)
+            set_state_(saved_environments_stack_.top());
+            saved_environments_stack_.pop();
+        }
+
+        virtual void save_environment(const py::object& observation) { // map version (for bfsIW)
+            try {
+                saved_environments_map_.insert(std::make_pair(observation, get_state_()));
+            } catch (const std::exception& e) {
+                py::print("Python binding error: " + std::string(e.what()));
+            }
+        }
+
+        virtual void restore_environment(const py::object& observation) { // map version (for bfsIW)
+            auto i = saved_environments_map_.find(observation);
+            if (i == saved_environments_map_.end()) {
+                py::print("ERROR: no such observation to restore");
+                return;
+            }
+            set_state_(i->second);
+            saved_environments_map_.erase(i);
+        }
+
+    private :
+        py::object get_state_;
+        py::object set_state_;
+    };
+
     py::object gym_env_;
     double space_relative_precision_;
     std::unique_ptr<GymSpace> observation_space_;
     std::unique_ptr<GymSpace> action_space_;
-    std::map<py::object, py::object, ObservationLess> saved_environments_map_; // Gym cannot save and restore arbitrary observations so we need to (deep) copy environments at particular observation points
-    std::stack<py::object> saved_environments_stack_; // Gym cannot save and restore arbitrary observations so we need to (deep) copy environments at particular observation points
     std::unique_ptr<SimPlanner<GymProxy>> planner_;
+    std::unique_ptr<EnvironmentSaver> environment_saver_;
 };
