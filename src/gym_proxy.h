@@ -43,12 +43,6 @@ public :
             } else {
                 py::print("ERROR: unsupported feature atom vector encoding '" + encoding + "'");
             }
-            if ((py::hasattr(gym_env, "get_state") && py::hasattr(gym_env, "set_state")) ||
-                (py::hasattr(gym_env, "sim") && py::hasattr(gym_env.attr("sim"), "get_state") && py::hasattr(gym_env.attr("sim"), "set_state"))) {
-                environment_saver_ = std::make_unique<EnvironmentStateSaver>(gym_env_);
-            } else {
-                environment_saver_ = std::make_unique<EnvironmentCopySaver>(gym_env_);
-            }
             if (planner == "bfs-iw") {
                 planner_ = std::make_unique<BfsIW<GymProxy>>(*this, frameskip,
                                                              observation_space_->get_number_of_tracked_atoms(), simulator_budget,
@@ -64,6 +58,15 @@ public :
             } else {
                 py::print("ERROR: unsupported planner '" + planner + "'");
             }
+        }
+    }
+
+    void initialize_environment_saver() {
+        if ((py::hasattr(gym_env_, "get_state") && py::hasattr(gym_env_, "set_state")) ||
+            (py::hasattr(gym_env_, "sim") && py::hasattr(gym_env_.attr("sim"), "get_state") && py::hasattr(gym_env_.attr("sim"), "set_state"))) {
+            environment_saver_ = std::make_unique<EnvironmentStateSaver>(gym_env_);
+        } else {
+            environment_saver_ = std::make_unique<EnvironmentCopySaver>(gym_env_);
         }
     }
 
@@ -119,6 +122,7 @@ public :
               bool execute_single_action = false,
               int max_execution_length_in_frames = 18000) {
         try {
+            initialize_environment_saver();
             planner_->play(episodes, initial_random_noops, lookahead_caching,
                            prefix_length_to_execute, execute_single_action, max_execution_length_in_frames);
         } catch (const std::exception& e) {
@@ -129,6 +133,7 @@ public :
     // export to python
     void start_episode(int lookahead_caching = 2) {
         try {
+            initialize_environment_saver();
             planner_->start_episode(lookahead_caching);
         } catch (const std::exception& e) {
             py::print("Python binding error: " + std::string(e.what()));
